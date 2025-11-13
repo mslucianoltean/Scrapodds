@@ -1,160 +1,194 @@
 import streamlit as st
-import requests
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.options import Options
-import time
 import pandas as pd
 import json
+import time
+import os
+
+# Try to import undetected_chromedriver, fall back to regular selenium
+try:
+    import undetected_chromedriver as uc
+    UC_AVAILABLE = True
+except ImportError:
+    UC_AVAILABLE = False
+    from selenium import webdriver
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support.ui import WebDriverWait
+    from selenium.webdriver.support import expected_conditions as EC
+    from selenium.webdriver.chrome.options import Options
+    from selenium.webdriver.chrome.service import Service
+    from webdriver_manager.chrome import ChromeDriverManager
 
 class OddsScraper:
     def __init__(self, debug=False):
-        chrome_options = Options()
-        if not debug:
-            chrome_options.add_argument("--headless")
-        chrome_options.add_argument("--no-sandbox")
-        chrome_options.add_argument("--disable-dev-shm-usage")
-        chrome_options.add_argument("--window-size=1920,1080")
-        self.driver = webdriver.Chrome(options=chrome_options)
-        self.actions = webdriver.ActionChains(self.driver)
         self.debug = debug
+        self.driver = self.setup_driver()
+    
+    def setup_driver(self):
+        """Setup ChromeDriver for Streamlit Cloud"""
+        if UC_AVAILABLE:
+            # Use undetected_chromedriver (more reliable)
+            st.info("🚀 Using undetected_chromedriver...")
+            options = uc.ChromeOptions()
+            options.add_argument("--headless=new")
+            options.add_argument("--no-sandbox")
+            options.add_argument("--disable-dev-shm-usage")
+            options.add_argument("--disable-gpu")
+            options.add_argument("--window-size=1920,1080")
+            options.add_argument("--remote-debugging-port=9222")
+            
+            driver = uc.Chrome(options=options)
+            return driver
+        else:
+            # Fallback to regular selenium
+            st.info("🚀 Using regular ChromeDriver...")
+            chrome_options = Options()
+            chrome_options.add_argument("--headless=new")
+            chrome_options.add_argument("--no-sandbox")
+            chrome_options.add_argument("--disable-dev-shm-usage")
+            chrome_options.add_argument("--disable-gpu")
+            chrome_options.add_argument("--window-size=1920,1080")
+            chrome_options.add_argument("--remote-debugging-port=9222")
+            chrome_options.add_argument("--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            
+            try:
+                service = Service(ChromeDriverManager().install())
+                driver = webdriver.Chrome(service=service, options=chrome_options)
+                return driver
+            except Exception as e:
+                st.error(f"❌ ChromeDriver setup failed: {e}")
+                raise
     
     def take_screenshot(self, name):
         """Take screenshot for debugging"""
         if self.debug:
-            self.driver.save_screenshot(f"{name}.png")
-            st.image(f"{name}.png", caption=name, use_column_width=True)
-    
-    def extract_line_value(self, line_element):
-        """Extract the line value from the element"""
-        try:
-            # Look for the exact pattern you showed: <p class="max-sm:!hidden">Over/Under +228.5</p>
-            selectors = [
-                './/p[contains(@class, "max-sm")]',
-                './/p[contains(text(), "Over/Under")]',
-                './/span[contains(text(), "Over/Under")]',
-                './/div[contains(text(), "Over/Under")]'
-            ]
-            
-            for selector in selectors:
-                try:
-                    element = line_element.find_element(By.XPATH, selector)
-                    text = element.text.strip()
-                    if text and "Over/Under" in text:
-                        return text
-                except:
-                    continue
-            
-            # Fallback: get all text from the element
-            return line_element.text.strip()
-        except:
-            return "Unknown"
-    
-    def find_matching_lines(self, line_elements, target_lines):
-        """Find lines that match the target lines exactly or partially"""
-        matches = {}
-        
-        st.info("Scanning all available lines:")
-        for line_element in line_elements:
-            line_value = self.extract_line_value(line_element)
-            st.info(f"Found line: '{line_value}'")
-            
-            # Check if this line matches any of our target lines
-            for target in target_lines:
-                # Try exact match first
-                if target.lower() in line_value.lower():
-                    matches[target] = {
-                        'element': line_element,
-                        'full_text': line_value
-                    }
-                    st.success(f"✓ MATCH: '{target}' found in '{line_value}'")
-                    break
-                # Also try to match the number part if target is a number
-                elif target.replace('.', '').isdigit():
-                    if target in line_value:
-                        matches[target] = {
-                            'element': line_element, 
-                            'full_text': line_value
-                        }
-                        st.success(f"✓ MATCH: '{target}' found in '{line_value}'")
-                        break
-        
-        return matches
+            try:
+                self.driver.save_screenshot(f"{name}.png")
+                st.image(f"{name}.png", caption=name, use_column_width=True)
+            except:
+                pass
     
     def scrape_over_under_odds(self, url, lines):
         try:
-            st.info(f"Navigating to: {url}")
+            st.info(f"🌐 Navigating to: {url}")
             self.driver.get(url)
+            time.sleep(10)  # Wait longer for initial load
+            
+            self.take_screenshot("01_page_loaded")
+            
+            # Wait for page to load completely
             time.sleep(5)
-            self.take_screenshot("01_initial_page")
             
             results = {}
             
-            # Find all line elements in Over/Under tab
-            st.info("Looking for line elements...")
-            line_elements = self.driver.find_elements(By.XPATH, '//div[contains(@class, "border-black-borders") and contains(@class, "hover:bg-gray-light") and contains(@class, "flex") and contains(@class, "h-9") and contains(@class, "cursor-pointer")]')
+            # Find all line elements with multiple selector strategies
+            st.info("🔍 Searching for line elements...")
             
-            st.info(f"Found {len(line_elements)} line elements")
+            # Try different selectors for line elements
+            line_selectors = [
+                '//div[contains(@class, "border-black-borders")]',
+                '//div[contains(@class, "cursor-pointer")]',
+                '//div[contains(@class, "hover:bg-gray-light")]',
+                '//div[@class="flex h-9 cursor-pointer border-b border-l border-r border-black-borders hover:bg-gray-light text-xs"]'
+            ]
             
-            # Find matching lines
-            matched_lines = self.find_matching_lines(line_elements, lines)
-            st.info(f"Found {len(matched_lines)} matching lines: {list(matched_lines.keys())}")
-            
-            for line_name, line_data in matched_lines.items():
+            line_elements = []
+            for selector in line_selectors:
                 try:
-                    line_element = line_data['element']
-                    full_text = line_data['full_text']
+                    elements = self.driver.find_elements(By.XPATH, selector)
+                    if elements:
+                        line_elements.extend(elements)
+                        st.info(f"✅ Found {len(elements)} elements with: {selector}")
+                        break
+                except:
+                    continue
+            
+            if not line_elements:
+                # Last resort: get all divs and filter
+                all_divs = self.driver.find_elements(By.XPATH, '//div')
+                line_elements = [div for div in all_divs if div.get_attribute('class') and 'border-black-borders' in div.get_attribute('class')]
+            
+            st.info(f"📊 Total line elements found: {len(line_elements)}")
+            
+            # Show what we found
+            for i, elem in enumerate(line_elements[:10]):  # Show first 10
+                try:
+                    text = elem.text.strip()
+                    if text:
+                        st.info(f"Line {i+1}: '{text}'")
+                except:
+                    pass
+            
+            processed_count = 0
+            max_lines_to_process = min(3, len(lines))  # Process max 3 lines to avoid timeout
+            
+            for i, line_element in enumerate(line_elements):
+                if processed_count >= max_lines_to_process:
+                    break
                     
-                    st.success(f"✓ Processing: {line_name} (Full text: {full_text})")
+                try:
+                    line_text = line_element.text.strip()
+                    if not line_text or "Over/Under" not in line_text:
+                        continue
                     
-                    # Click to expand the line
-                    st.info("Clicking to expand line...")
-                    line_element.click()
-                    time.sleep(3)
-                    self.take_screenshot(f"02_line_expanded_{line_name}")
+                    st.info(f"📝 Checking: '{line_text}'")
                     
-                    # Look for Betano
-                    betano_found = self.find_and_click_betano(line_name)
+                    # Check for matches
+                    matched_line = None
+                    for target in lines:
+                        if target in line_text:
+                            matched_line = target
+                            st.success(f"🎯 MATCH FOUND: '{target}' in '{line_text}'")
+                            break
                     
-                    if betano_found:
-                        # Extract odds
-                        odds_data = self.extract_betano_odds(line_name)
-                        results[line_name] = {
-                            'full_line_text': full_text,
+                    if matched_line:
+                        # Scroll and click
+                        self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", line_element)
+                        time.sleep(2)
+                        
+                        st.info("🖱️ Expanding line...")
+                        try:
+                            line_element.click()
+                        except:
+                            self.driver.execute_script("arguments[0].click();", line_element)
+                        
+                        time.sleep(4)
+                        self.take_screenshot(f"02_expanded_{matched_line}")
+                        
+                        # Process this line
+                        odds_data = self.process_expanded_line(matched_line)
+                        results[matched_line] = {
+                            'full_text': line_text,
                             **odds_data
                         }
-                    else:
-                        st.warning(f"Could not find Betano for line {line_name}")
-                        results[line_name] = {
-                            'full_line_text': full_text,
-                            'over_open': 'N/A',
-                            'over_close': 'N/A', 
-                            'under_open': 'N/A',
-                            'under_close': 'N/A'
-                        }
+                        processed_count += 1
                         
+                        # Collapse line
+                        try:
+                            line_element.click()
+                            time.sleep(1)
+                        except:
+                            pass
+                            
                 except Exception as e:
-                    st.error(f"Error processing line {line_name}: {str(e)}")
+                    st.warning(f"⚠️ Skipping line {i+1}: {str(e)}")
+                    continue
             
             return results
             
         except Exception as e:
-            st.error(f"Error scraping Over/Under: {str(e)}")
+            st.error(f"❌ Scraping error: {str(e)}")
             return {}
     
-    def find_and_click_betano(self, line_name):
-        """Find and click Betano odds"""
+    def process_expanded_line(self, line_name):
+        """Process an expanded line to find Betano and extract odds"""
         try:
-            st.info("Looking for Betano...")
+            st.info("💰 Searching for Betano...")
             
-            # Find Betano element
+            # Find Betano with multiple strategies
             betano_selectors = [
-                '//a[contains(., "Betano")]',
-                '//span[contains(., "Betano")]', 
-                '//div[contains(., "Betano")]',
-                '//*[contains(text(), "Betano")]'
+                '//*[contains(translate(text(), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "betano")]',
+                '//a[contains(translate(text(), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "betano")]',
+                '//span[contains(translate(text(), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "betano")]'
             ]
             
             betano_element = None
@@ -164,7 +198,7 @@ class OddsScraper:
                     for elem in elements:
                         if "betano" in elem.text.lower():
                             betano_element = elem
-                            st.success(f"✓ Found Betano: {betano_element.text}")
+                            st.success("✅ Found Betano!")
                             break
                     if betano_element:
                         break
@@ -172,182 +206,158 @@ class OddsScraper:
                     continue
             
             if not betano_element:
-                st.warning("✗ Betano not found")
-                return False
+                return {'over_open': 'N/A', 'over_close': 'N/A', 'under_open': 'N/A', 'under_close': 'N/A', 'error': 'Betano not found'}
             
-            # Find the Betano row
-            betano_row = betano_element.find_element(By.XPATH, './ancestor::div[contains(@class, "flex")][1]')
+            # Find clickable elements in Betano row
+            betano_row = betano_element.find_element(By.XPATH, './ancestor::div[1]')
+            buttons = betano_row.find_elements(By.XPATH, './/*[@onclick or contains(@class, "cursor-pointer") or contains(@class, "button") or contains(@class, "btn")]')
             
-            # Find clickable odds buttons in Betano row
-            clickable_elements = betano_row.find_elements(By.XPATH, './/p[contains(@class, "cursor-pointer")] | .//div[contains(@class, "cursor-pointer")] | .//button | .//a')
+            st.info(f"🔘 Found {len(buttons)} clickable elements")
             
-            st.info(f"Found {len(clickable_elements)} clickable elements in Betano row")
+            odds_data = {
+                'over_open': 'N/A', 
+                'over_close': 'N/A',
+                'under_open': 'N/A',
+                'under_close': 'N/A'
+            }
             
-            if len(clickable_elements) >= 2:
-                return True
-            else:
-                st.warning("Not enough clickable elements found for Betano")
-                return False
-                
+            # Try to click buttons and get odds
+            for i, button in enumerate(buttons[:2]):  # Try first two buttons
+                try:
+                    button_type = "Over" if i == 0 else "Under"
+                    st.info(f"🎯 Clicking {button_type} button...")
+                    
+                    self.driver.execute_script("arguments[0].click();", button)
+                    time.sleep(3)
+                    self.take_screenshot(f"03_{button_type.lower()}_popup")
+                    
+                    open_odds, close_odds = self.extract_popup_odds()
+                    
+                    if i == 0:  # Over
+                        odds_data['over_open'] = open_odds
+                        odds_data['over_close'] = close_odds
+                    else:  # Under
+                        odds_data['under_open'] = open_odds
+                        odds_data['under_close'] = close_odds
+                    
+                    # Close popup
+                    self.driver.find_element(By.TAG_NAME, 'body').send_keys('Escape')
+                    time.sleep(2)
+                    
+                except Exception as e:
+                    st.warning(f"⚠️ {button_type} button failed: {e}")
+            
+            return odds_data
+            
         except Exception as e:
-            st.error(f"Error finding Betano: {str(e)}")
-            return False
+            st.error(f"❌ Line processing failed: {str(e)}")
+            return {'over_open': 'N/A', 'over_close': 'N/A', 'under_open': 'N/A', 'under_close': 'N/A', 'error': str(e)}
     
-    def extract_betano_odds(self, line_name):
-        """Extract Over/Under odds from Betano"""
-        over_open, over_close, under_open, under_close = "N/A", "N/A", "N/A", "N/A"
-        
-        try:
-            # Find Betano row again
-            betano_element = self.driver.find_element(By.XPATH, '//*[contains(text(), "Betano")]')
-            betano_row = betano_element.find_element(By.XPATH, './ancestor::div[contains(@class, "flex")][1]')
-            clickable_elements = betano_row.find_elements(By.XPATH, './/p[contains(@class, "cursor-pointer")] | .//div[contains(@class, "cursor-pointer")] | .//button | .//a')
-            
-            # Click Over (first element)
-            if len(clickable_elements) >= 1:
-                st.info("Clicking Over button...")
-                clickable_elements[0].click()
-                time.sleep(2)
-                self.take_screenshot(f"03_over_popup_{line_name}")
-                
-                over_open, over_close = self.extract_popup_odds("Over")
-                self.close_popup()
-            
-            # Click Under (second element)  
-            if len(clickable_elements) >= 2:
-                st.info("Clicking Under button...")
-                clickable_elements[1].click()
-                time.sleep(2)
-                self.take_screenshot(f"04_under_popup_{line_name}")
-                
-                under_open, under_close = self.extract_popup_odds("Under")
-                self.close_popup()
-                
-        except Exception as e:
-            st.error(f"Error extracting Betano odds: {str(e)}")
-        
-        return {
-            'over_open': over_open,
-            'over_close': over_close,
-            'under_open': under_open,
-            'under_close': under_close
-        }
-    
-    def extract_popup_odds(self, bet_type):
-        """Extract open and close odds from popup"""
+    def extract_popup_odds(self):
+        """Extract odds from popup"""
         open_odds, close_odds = "N/A", "N/A"
         
         try:
-            # Try multiple XPath patterns for open odds
-            open_selectors = [
-                '//*[@id="app"]/div[1]/div[1]/div/main/div[4]/div[2]/div[2]/div[2]/div[2]/div[2]/div[1]/div[2]/div[3]/div[2]/div[2]',
-                '//div[contains(text(), "Opening")]/following-sibling::div',
-                '//span[contains(text(), "Open")]/following-sibling::span',
-                '//div[contains(@class, "open")]'
-            ]
+            # Look for odds elements
+            odds_elements = self.driver.find_elements(By.XPATH, '//*[contains(text(), ".")]')  # Look for decimal numbers
             
-            for selector in open_selectors:
-                try:
-                    element = self.driver.find_element(By.XPATH, selector)
-                    if element.text.strip():
-                        open_odds = element.text.strip()
-                        st.success(f"{bet_type} Open: {open_odds}")
+            for elem in odds_elements:
+                text = elem.text.strip()
+                if text and any(char.isdigit() for char in text) and '.' in text:
+                    if open_odds == "N/A":
+                        open_odds = text
+                        st.success(f"📈 Found odds: {text}")
+                    elif close_odds == "N/A":
+                        close_odds = text
+                        st.success(f"📉 Found odds: {text}")
                         break
-                except:
-                    continue
-            
-            # Try multiple XPath patterns for close odds
-            close_selectors = [
-                '/html/body/div[1]/div[1]/div[1]/div/main/div[4]/div[2]/div[2]/div[2]/div[2]/div[2]/div[1]/div[2]/div[2]/div/div/div[2]/div',
-                '//div[contains(text(), "Closing")]/following-sibling::div',
-                '//span[contains(text(), "Close")]/following-sibling::span',
-                '//div[contains(@class, "close")]'
-            ]
-            
-            for selector in close_selectors:
-                try:
-                    element = self.driver.find_element(By.XPATH, selector)
-                    if element.text.strip():
-                        close_odds = element.text.strip()
-                        st.success(f"{bet_type} Close: {close_odds}")
-                        break
-                except:
-                    continue
-                    
+                        
         except Exception as e:
-            st.warning(f"Error extracting {bet_type} odds: {e}")
+            st.warning(f"⚠️ Odds extraction failed: {e}")
         
         return open_odds, close_odds
     
-    def close_popup(self):
-        """Close the popup"""
-        try:
-            self.driver.find_element(By.TAG_NAME, 'body').send_keys('Escape')
-            time.sleep(1)
-        except:
-            pass
-    
     def close(self):
-        self.driver.quit()
+        """Close driver"""
+        if hasattr(self, 'driver') and self.driver:
+            try:
+                self.driver.quit()
+            except:
+                pass
 
 def main():
-    st.title("OddsPortal Exact Match Scraper")
+    st.title("🎯 OddsPortal Cloud Scraper")
     
-    st.info("🔍 **Enter the EXACT text that appears in the Over/Under lines**")
-    st.info("Example: If you see 'Over/Under +228.5', enter '+228.5' or 'Over/Under +228.5'")
+    st.info("""
+    **This version should work on Streamlit Cloud!**
+    - Uses undetected_chromedriver (more reliable)
+    - Multiple fallback strategies
+    - Handles dynamic content
+    """)
     
     # Input section
-    url = st.text_input("Enter OddsPortal URL:", placeholder="https://www.oddsportal.com/...")
+    url = st.text_input("🔗 OddsPortal URL:", 
+                       value="https://www.oddsportal.com/basketball/usa/nba/",
+                       placeholder="Paste OddsPortal URL here")
     
-    lines_input = st.text_input("Enter EXACT line texts to scrape (comma-separated):", 
-                               placeholder="+228.5, +3.5, +2.5, Over/Under +228.5, etc.")
+    lines_input = st.text_input("📝 Lines to scrape:",
+                               value="+2.5, +3.5, +4.5",
+                               placeholder="Enter line values like +2.5, +3.5")
     
-    if st.button("Scrape Over/Under Odds"):
+    if st.button("🚀 Start Scraping"):
         if url and lines_input:
             lines = [line.strip() for line in lines_input.split(",")]
             
-            st.info(f"Looking for these exact lines: {lines}")
+            st.info(f"🎯 Target lines: {lines}")
             
-            with st.spinner("Scraping with exact text matching..."):
+            # Initialize scraper
+            try:
                 scraper = OddsScraper(debug=True)
-                try:
+            except Exception as e:
+                st.error(f"❌ Failed to initialize scraper: {e}")
+                st.info("💡 Try adding 'undetected-chromedriver' to requirements.txt")
+                return
+            
+            # Start scraping
+            try:
+                with st.spinner("🕒 Scraping... This may take 1-2 minutes..."):
                     results = scraper.scrape_over_under_odds(url, lines)
+                
+                if results:
+                    st.success(f"✅ Scraped {len(results)} lines!")
                     
-                    if results:
-                        st.success("🎉 Successfully scraped Over/Under odds!")
-                        
-                        # Create DataFrame for display
-                        data = []
-                        for line_name, odds_data in results.items():
-                            data.append({
-                                'Line': line_name,
-                                'Full Text': odds_data.get('full_line_text', ''),
-                                'Over Open': odds_data.get('over_open', 'N/A'),
-                                'Over Close': odds_data.get('over_close', 'N/A'),
-                                'Under Open': odds_data.get('under_open', 'N/A'),
-                                'Under Close': odds_data.get('under_close', 'N/A')
-                            })
-                        
-                        df = pd.DataFrame(data)
-                        st.dataframe(df)
-                        
-                        # Download JSON
-                        json_data = json.dumps(results, indent=2)
-                        st.download_button(
-                            label="Download JSON",
-                            data=json_data,
-                            file_name="odds_results.json",
-                            mime="application/json"
-                        )
-                    else:
-                        st.error("❌ No matching lines found. Check the debug output above to see what lines are available.")
-                        
-                except Exception as e:
-                    st.error(f"Error: {str(e)}")
-                finally:
-                    scraper.close()
+                    # Display results
+                    data = []
+                    for line_name, odds_data in results.items():
+                        data.append({
+                            'Line': line_name,
+                            'Full Text': odds_data.get('full_text', ''),
+                            'Over Open': odds_data.get('over_open', 'N/A'),
+                            'Over Close': odds_data.get('over_close', 'N/A'),
+                            'Under Open': odds_data.get('under_open', 'N/A'),
+                            'Under Close': odds_data.get('under_close', 'N/A')
+                        })
+                    
+                    df = pd.DataFrame(data)
+                    st.dataframe(df)
+                    
+                    # Download
+                    json_data = json.dumps(results, indent=2)
+                    st.download_button(
+                        label="📥 Download JSON",
+                        data=json_data,
+                        file_name="odds_data.json",
+                        mime="application/json"
+                    )
+                else:
+                    st.error("❌ No results found. Check the URL and try different line values.")
+                    
+            except Exception as e:
+                st.error(f"❌ Scraping failed: {e}")
+            finally:
+                scraper.close()
         else:
-            st.warning("Please enter both URL and lines.")
+            st.warning("⚠️ Please enter both URL and lines.")
 
 if __name__ == "__main__":
     main()
