@@ -19,6 +19,11 @@ class OddsportalScraper:
         options.add_argument('--no-sandbox')
         options.add_argument('--disable-dev-shm-usage')
         options.add_argument('--disable-blink-features=AutomationControlled')
+        options.add_argument('--disable-gpu')
+        options.binary_location = '/usr/bin/chromium'
+        self.driver = webdriver.Chrome(options=options)
+        self.wait = WebDriverWait(self.driver,15)
+        self.actions = ActionChains(self.driver)
         
         self.driver = webdriver.Chrome(options=options)
         self.wait = WebDriverWait(self.driver, 15)
