@@ -161,12 +161,12 @@ class OddsportalScraper:
             
             # Extrage cotele prin hover - AICI ERA EROAREA
             st.write("🔄 Hover pe prima cotă...")
-            self.actions.move_to_element(odds_cells,[object Object],).perform()
+            self.actions.move_to_element(odds_cells).perform()
             time.sleep(2)
             option1_opening, option1_closing = self.extract_odds_from_popup()
             
             st.write("🔄 Hover pe a doua cotă...")
-            self.actions.move_to_element(odds_cells,[object Object],).perform()
+            self.actions.move_to_element(odds_cells).perform()
             time.sleep(2)
             option2_opening, option2_closing = self.extract_odds_from_popup()
             
