@@ -273,7 +273,7 @@ class OddsportalScraper:
                             break
             
             if not closing and len(all_odds) > 0:
-                closing = all_odds,[object Object],
+                closing = all_odds[0]
             if not opening and len(all_odds) > 1:
                 opening = all_odds[-1]
             
