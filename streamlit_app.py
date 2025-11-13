@@ -2,134 +2,88 @@ import streamlit as st
 import pandas as pd
 import json
 import time
-import os
+import asyncio
+from playwright.async_api import async_playwright
+import nest_asyncio
 
-# Try to import undetected_chromedriver, fall back to regular selenium
-try:
-    import undetected_chromedriver as uc
-    UC_AVAILABLE = True
-except ImportError:
-    UC_AVAILABLE = False
-    from selenium import webdriver
-    from selenium.webdriver.common.by import By
-    from selenium.webdriver.support.ui import WebDriverWait
-    from selenium.webdriver.support import expected_conditions as EC
-    from selenium.webdriver.chrome.options import Options
-    from selenium.webdriver.chrome.service import Service
-    from webdriver_manager.chrome import ChromeDriverManager
+# Apply nest_asyncio to allow running async code in Streamlit
+nest_asyncio.apply()
 
 class OddsScraper:
     def __init__(self, debug=False):
         self.debug = debug
-        self.driver = self.setup_driver()
+        self.playwright = None
+        self.browser = None
+        self.page = None
     
-    def setup_driver(self):
-        """Setup ChromeDriver for Streamlit Cloud"""
-        if UC_AVAILABLE:
-            # Use undetected_chromedriver (more reliable)
-            st.info("🚀 Using undetected_chromedriver...")
-            options = uc.ChromeOptions()
-            options.add_argument("--headless=new")
-            options.add_argument("--no-sandbox")
-            options.add_argument("--disable-dev-shm-usage")
-            options.add_argument("--disable-gpu")
-            options.add_argument("--window-size=1920,1080")
-            options.add_argument("--remote-debugging-port=9222")
-            
-            driver = uc.Chrome(options=options)
-            return driver
-        else:
-            # Fallback to regular selenium
-            st.info("🚀 Using regular ChromeDriver...")
-            chrome_options = Options()
-            chrome_options.add_argument("--headless=new")
-            chrome_options.add_argument("--no-sandbox")
-            chrome_options.add_argument("--disable-dev-shm-usage")
-            chrome_options.add_argument("--disable-gpu")
-            chrome_options.add_argument("--window-size=1920,1080")
-            chrome_options.add_argument("--remote-debugging-port=9222")
-            chrome_options.add_argument("--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-            
-            try:
-                service = Service(ChromeDriverManager().install())
-                driver = webdriver.Chrome(service=service, options=chrome_options)
-                return driver
-            except Exception as e:
-                st.error(f"❌ ChromeDriver setup failed: {e}")
-                raise
+    async def setup(self):
+        """Setup Playwright browser"""
+        self.playwright = await async_playwright().start()
+        self.browser = await self.playwright.chromium.launch(
+            headless=True,
+            args=[
+                '--no-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-gpu',
+                '--window-size=1920,1080'
+            ]
+        )
+        self.page = await self.browser.new_page()
+        await self.page.set_viewport_size({"width": 1920, "height": 1080})
     
-    def take_screenshot(self, name):
+    async def take_screenshot(self, name):
         """Take screenshot for debugging"""
         if self.debug:
-            try:
-                self.driver.save_screenshot(f"{name}.png")
-                st.image(f"{name}.png", caption=name, use_column_width=True)
-            except:
-                pass
+            await self.page.screenshot(path=f"{name}.png")
+            st.image(f"{name}.png", caption=name, use_column_width=True)
     
-    def scrape_over_under_odds(self, url, lines):
+    async def scrape_over_under_odds(self, url, lines):
         try:
             st.info(f"🌐 Navigating to: {url}")
-            self.driver.get(url)
-            time.sleep(10)  # Wait longer for initial load
+            await self.page.goto(url, wait_until='networkidle')
+            await asyncio.sleep(8)
             
-            self.take_screenshot("01_page_loaded")
-            
-            # Wait for page to load completely
-            time.sleep(5)
+            await self.take_screenshot("01_page_loaded")
             
             results = {}
             
-            # Find all line elements with multiple selector strategies
+            # Wait for page to load
+            await self.page.wait_for_load_state('networkidle')
+            await asyncio.sleep(3)
+            
+            # Find line elements
             st.info("🔍 Searching for line elements...")
             
-            # Try different selectors for line elements
-            line_selectors = [
-                '//div[contains(@class, "border-black-borders")]',
-                '//div[contains(@class, "cursor-pointer")]',
-                '//div[contains(@class, "hover:bg-gray-light")]',
-                '//div[@class="flex h-9 cursor-pointer border-b border-l border-r border-black-borders hover:bg-gray-light text-xs"]'
-            ]
-            
-            line_elements = []
-            for selector in line_selectors:
-                try:
-                    elements = self.driver.find_elements(By.XPATH, selector)
-                    if elements:
-                        line_elements.extend(elements)
-                        st.info(f"✅ Found {len(elements)} elements with: {selector}")
-                        break
-                except:
-                    continue
+            line_elements = await self.page.query_selector_all('xpath=//div[contains(@class, "border-black-borders") and contains(@class, "cursor-pointer")]')
             
             if not line_elements:
-                # Last resort: get all divs and filter
-                all_divs = self.driver.find_elements(By.XPATH, '//div')
-                line_elements = [div for div in all_divs if div.get_attribute('class') and 'border-black-borders' in div.get_attribute('class')]
+                # Try alternative selector
+                line_elements = await self.page.query_selector_all('div.border-black-borders')
             
-            st.info(f"📊 Total line elements found: {len(line_elements)}")
+            st.info(f"📊 Found {len(line_elements)} line elements")
             
             # Show what we found
-            for i, elem in enumerate(line_elements[:10]):  # Show first 10
+            for i in range(min(5, len(line_elements))):
                 try:
-                    text = elem.text.strip()
-                    if text:
-                        st.info(f"Line {i+1}: '{text}'")
+                    text = await line_elements[i].text_content()
+                    if text and "Over/Under" in text:
+                        st.info(f"Line {i+1}: '{text.strip()}'")
                 except:
                     pass
             
             processed_count = 0
-            max_lines_to_process = min(3, len(lines))  # Process max 3 lines to avoid timeout
+            max_lines = min(2, len(lines))  # Process max 2 lines
             
             for i, line_element in enumerate(line_elements):
-                if processed_count >= max_lines_to_process:
+                if processed_count >= max_lines:
                     break
                     
                 try:
-                    line_text = line_element.text.strip()
+                    line_text = await line_element.text_content()
                     if not line_text or "Over/Under" not in line_text:
                         continue
                     
+                    line_text = line_text.strip()
                     st.info(f"📝 Checking: '{line_text}'")
                     
                     # Check for matches
@@ -137,38 +91,32 @@ class OddsScraper:
                     for target in lines:
                         if target in line_text:
                             matched_line = target
-                            st.success(f"🎯 MATCH FOUND: '{target}' in '{line_text}'")
+                            st.success(f"🎯 MATCH FOUND: '{target}'")
                             break
                     
                     if matched_line:
                         # Scroll and click
-                        self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", line_element)
-                        time.sleep(2)
+                        await line_element.scroll_into_view_if_needed()
+                        await asyncio.sleep(2)
                         
                         st.info("🖱️ Expanding line...")
-                        try:
-                            line_element.click()
-                        except:
-                            self.driver.execute_script("arguments[0].click();", line_element)
+                        await line_element.click()
+                        await asyncio.sleep(4)
                         
-                        time.sleep(4)
-                        self.take_screenshot(f"02_expanded_{matched_line}")
+                        await self.take_screenshot(f"02_expanded_{matched_line}")
                         
                         # Process this line
-                        odds_data = self.process_expanded_line(matched_line)
+                        odds_data = await self.process_expanded_line(matched_line)
                         results[matched_line] = {
                             'full_text': line_text,
                             **odds_data
                         }
                         processed_count += 1
                         
-                        # Collapse line
-                        try:
-                            line_element.click()
-                            time.sleep(1)
-                        except:
-                            pass
-                            
+                        # Click again to collapse
+                        await line_element.click()
+                        await asyncio.sleep(1)
+                        
                 except Exception as e:
                     st.warning(f"⚠️ Skipping line {i+1}: {str(e)}")
                     continue
@@ -179,38 +127,22 @@ class OddsScraper:
             st.error(f"❌ Scraping error: {str(e)}")
             return {}
     
-    def process_expanded_line(self, line_name):
-        """Process an expanded line to find Betano and extract odds"""
+    async def process_expanded_line(self, line_name):
+        """Process expanded line to find Betano"""
         try:
             st.info("💰 Searching for Betano...")
             
-            # Find Betano with multiple strategies
-            betano_selectors = [
-                '//*[contains(translate(text(), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "betano")]',
-                '//a[contains(translate(text(), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "betano")]',
-                '//span[contains(translate(text(), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "betano")]'
-            ]
-            
-            betano_element = None
-            for selector in betano_selectors:
-                try:
-                    elements = self.driver.find_elements(By.XPATH, selector)
-                    for elem in elements:
-                        if "betano" in elem.text.lower():
-                            betano_element = elem
-                            st.success("✅ Found Betano!")
-                            break
-                    if betano_element:
-                        break
-                except:
-                    continue
+            # Find Betano element
+            betano_element = await self.page.query_selector('xpath=//*[contains(translate(text(), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "betano")]')
             
             if not betano_element:
                 return {'over_open': 'N/A', 'over_close': 'N/A', 'under_open': 'N/A', 'under_close': 'N/A', 'error': 'Betano not found'}
             
-            # Find clickable elements in Betano row
-            betano_row = betano_element.find_element(By.XPATH, './ancestor::div[1]')
-            buttons = betano_row.find_elements(By.XPATH, './/*[@onclick or contains(@class, "cursor-pointer") or contains(@class, "button") or contains(@class, "btn")]')
+            st.success("✅ Found Betano!")
+            
+            # Find Betano row and buttons
+            betano_row = await betano_element.query_selector('xpath=./ancestor::div[1]')
+            buttons = await betano_row.query_selector_all('xpath=.//*[@onclick or contains(@class, "cursor-pointer")]')
             
             st.info(f"🔘 Found {len(buttons)} clickable elements")
             
@@ -221,28 +153,28 @@ class OddsScraper:
                 'under_close': 'N/A'
             }
             
-            # Try to click buttons and get odds
-            for i, button in enumerate(buttons[:2]):  # Try first two buttons
+            # Click buttons and extract odds
+            for i in range(min(2, len(buttons))):
                 try:
                     button_type = "Over" if i == 0 else "Under"
                     st.info(f"🎯 Clicking {button_type} button...")
                     
-                    self.driver.execute_script("arguments[0].click();", button)
-                    time.sleep(3)
-                    self.take_screenshot(f"03_{button_type.lower()}_popup")
+                    await buttons[i].click()
+                    await asyncio.sleep(3)
+                    await self.take_screenshot(f"03_{button_type.lower()}_popup")
                     
-                    open_odds, close_odds = self.extract_popup_odds()
+                    open_odds, close_odds = await self.extract_popup_odds()
                     
-                    if i == 0:  # Over
+                    if i == 0:
                         odds_data['over_open'] = open_odds
                         odds_data['over_close'] = close_odds
-                    else:  # Under
+                    else:
                         odds_data['under_open'] = open_odds
                         odds_data['under_close'] = close_odds
                     
                     # Close popup
-                    self.driver.find_element(By.TAG_NAME, 'body').send_keys('Escape')
-                    time.sleep(2)
+                    await self.page.keyboard.press('Escape')
+                    await asyncio.sleep(2)
                     
                 except Exception as e:
                     st.warning(f"⚠️ {button_type} button failed: {e}")
@@ -253,23 +185,23 @@ class OddsScraper:
             st.error(f"❌ Line processing failed: {str(e)}")
             return {'over_open': 'N/A', 'over_close': 'N/A', 'under_open': 'N/A', 'under_close': 'N/A', 'error': str(e)}
     
-    def extract_popup_odds(self):
+    async def extract_popup_odds(self):
         """Extract odds from popup"""
         open_odds, close_odds = "N/A", "N/A"
         
         try:
             # Look for odds elements
-            odds_elements = self.driver.find_elements(By.XPATH, '//*[contains(text(), ".")]')  # Look for decimal numbers
+            odds_elements = await self.page.query_selector_all('xpath=//*[contains(text(), ".")]')
             
-            for elem in odds_elements:
-                text = elem.text.strip()
+            for element in odds_elements:
+                text = await element.text_content()
                 if text and any(char.isdigit() for char in text) and '.' in text:
                     if open_odds == "N/A":
-                        open_odds = text
-                        st.success(f"📈 Found odds: {text}")
+                        open_odds = text.strip()
+                        st.success(f"📈 Found odds: {open_odds}")
                     elif close_odds == "N/A":
-                        close_odds = text
-                        st.success(f"📉 Found odds: {text}")
+                        close_odds = text.strip()
+                        st.success(f"📉 Found odds: {close_odds}")
                         break
                         
         except Exception as e:
@@ -277,31 +209,42 @@ class OddsScraper:
         
         return open_odds, close_odds
     
-    def close(self):
-        """Close driver"""
-        if hasattr(self, 'driver') and self.driver:
-            try:
-                self.driver.quit()
-            except:
-                pass
+    async def close(self):
+        """Close browser"""
+        if self.browser:
+            await self.browser.close()
+        if self.playwright:
+            await self.playwright.stop()
+
+def run_async_scraper(url, lines):
+    """Run the async scraper"""
+    scraper = OddsScraper(debug=True)
+    
+    async def main():
+        await scraper.setup()
+        results = await scraper.scrape_over_under_odds(url, lines)
+        await scraper.close()
+        return results
+    
+    # Run the async function
+    return asyncio.run(main())
 
 def main():
-    st.title("🎯 OddsPortal Cloud Scraper")
+    st.title("🎯 OddsPortal Playwright Scraper")
     
     st.info("""
-    **This version should work on Streamlit Cloud!**
-    - Uses undetected_chromedriver (more reliable)
-    - Multiple fallback strategies
-    - Handles dynamic content
+    **This version uses Playwright and should work on Streamlit Cloud!**
+    - No ChromeDriver required
+    - Better cloud compatibility
+    - Fast and reliable
     """)
     
     # Input section
     url = st.text_input("🔗 OddsPortal URL:", 
-                       value="https://www.oddsportal.com/basketball/usa/nba/",
-                       placeholder="Paste OddsPortal URL here")
+                       placeholder="https://www.oddsportal.com/basketball/usa/nba/...")
     
     lines_input = st.text_input("📝 Lines to scrape:",
-                               value="+2.5, +3.5, +4.5",
+                               value="+2.5, +3.5",
                                placeholder="Enter line values like +2.5, +3.5")
     
     if st.button("🚀 Start Scraping"):
@@ -310,21 +253,12 @@ def main():
             
             st.info(f"🎯 Target lines: {lines}")
             
-            # Initialize scraper
             try:
-                scraper = OddsScraper(debug=True)
-            except Exception as e:
-                st.error(f"❌ Failed to initialize scraper: {e}")
-                st.info("💡 Try adding 'undetected-chromedriver' to requirements.txt")
-                return
-            
-            # Start scraping
-            try:
-                with st.spinner("🕒 Scraping... This may take 1-2 minutes..."):
-                    results = scraper.scrape_over_under_odds(url, lines)
+                with st.spinner("🕒 Scraping with Playwright... This may take 1-2 minutes..."):
+                    results = run_async_scraper(url, lines)
                 
                 if results:
-                    st.success(f"✅ Scraped {len(results)} lines!")
+                    st.success(f"✅ Successfully scraped {len(results)} lines!")
                     
                     # Display results
                     data = []
@@ -350,12 +284,15 @@ def main():
                         mime="application/json"
                     )
                 else:
-                    st.error("❌ No results found. Check the URL and try different line values.")
+                    st.error("❌ No results found. Please check:")
+                    st.info("1. The URL is correct and accessible")
+                    st.info("2. The line values exist on the page")
+                    st.info("3. Try different line values")
                     
             except Exception as e:
-                st.error(f"❌ Scraping failed: {e}")
-            finally:
-                scraper.close()
+                st.error(f"❌ Scraping failed: {str(e)}")
+                st.info("💡 If this persists, try using a different URL or contact support.")
+                
         else:
             st.warning("⚠️ Please enter both URL and lines.")
 
