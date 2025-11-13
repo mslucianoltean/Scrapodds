@@ -8,126 +8,217 @@ from selenium.webdriver.chrome.options import Options
 import time
 import pandas as pd
 import json
+import re
 
 class OddsScraper:
-    def __init__(self):
+    def __init__(self, debug=False):
         chrome_options = Options()
-        chrome_options.add_argument("--headless")
+        if not debug:
+            chrome_options.add_argument("--headless")
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--window-size=1920,1080")
         self.driver = webdriver.Chrome(options=chrome_options)
         self.actions = webdriver.ActionChains(self.driver)
+        self.debug = debug
+    
+    def take_screenshot(self, name):
+        """Take screenshot for debugging"""
+        if self.debug:
+            self.driver.save_screenshot(f"{name}.png")
+            st.image(f"{name}.png", caption=name, use_column_width=True)
+    
+    def extract_line_value(self, line_element):
+        """Extract the line value from the element, handling different formats"""
+        try:
+            # Try different XPath patterns to find the line text
+            selectors = [
+                './/p[contains(@class, "max-sm")]',
+                './/span[contains(@class, "flex")]//span',
+                './/p[contains(text(), "Over/Under")]',
+                './/span[contains(text(), "Over/Under")]'
+            ]
+            
+            for selector in selectors:
+                try:
+                    element = line_element.find_element(By.XPATH, selector)
+                    text = element.text.strip()
+                    if text:
+                        return text
+                except:
+                    continue
+            
+            # If no specific element found, get all text and find the line
+            full_text = line_element.text
+            # Look for patterns like "Over/Under +2.5" or similar
+            pattern = r'Over/Under\s*[+-]?\d+\.?\d*'
+            match = re.search(pattern, full_text)
+            if match:
+                return match.group()
+                
+            return full_text
+        except:
+            return "Unknown"
+    
+    def find_line_by_partial_match(self, line_elements, target_lines):
+        """Find lines that partially match the target lines"""
+        matches = {}
+        
+        for line_element in line_elements:
+            line_value = self.extract_line_value(line_element)
+            
+            # Check if this line contains any of our target patterns
+            for target in target_lines:
+                # For simple inputs like "cl", look for common patterns
+                if target.lower() == 'cl':
+                    if any(pattern in line_value for pattern in ['+2.25', '+2.5', '+2.75', '2.25', '2.5', '2.75']):
+                        matches['cl'] = line_element
+                elif target.lower() == 'm3':
+                    if any(pattern in line_value for pattern in ['+3.25', '+3.5', '+3.75', '3.25', '3.5', '3.75']):
+                        matches['m3'] = line_element
+                elif target.lower() == 'm2':
+                    if any(pattern in line_value for pattern in ['+2.75', '+3.0', '+3.25', '2.75', '3.0', '3.25']):
+                        matches['m2'] = line_element
+                elif target.lower() == 'm1':
+                    if any(pattern in line_value for pattern in ['+2.25', '+2.5', '+2.75', '2.25', '2.5', '2.75']):
+                        matches['m1'] = line_element
+                elif target.lower() == 'p1':
+                    if any(pattern in line_value for pattern in ['+1.75', '+2.0', '+2.25', '1.75', '2.0', '2.25']):
+                        matches['p1'] = line_element
+                elif target.lower() == 'p2':
+                    if any(pattern in line_value for pattern in ['+1.25', '+1.5', '+1.75', '1.25', '1.5', '1.75']):
+                        matches['p2'] = line_element
+                elif target.lower() == 'p3':
+                    if any(pattern in line_value for pattern in ['+0.75', '+1.0', '+1.25', '0.75', '1.0', '1.25']):
+                        matches['p3'] = line_element
+                # Also try direct partial match
+                elif target.lower() in line_value.lower():
+                    matches[target] = line_element
+            
+            st.info(f"Line text: '{line_value}'")
+        
+        return matches
     
     def scrape_over_under_odds(self, url, lines):
         try:
+            st.info(f"Navigating to: {url}")
             self.driver.get(url)
             time.sleep(5)
+            self.take_screenshot("01_initial_page")
             
             results = {}
             
             # Find all line elements in Over/Under tab
+            st.info("Looking for line elements...")
             line_elements = self.driver.find_elements(By.XPATH, '//div[contains(@class, "border-black-borders") and contains(@class, "hover:bg-gray-light") and contains(@class, "flex") and contains(@class, "h-9") and contains(@class, "cursor-pointer")]')
             
-            for line_element in line_elements:
+            st.info(f"Found {len(line_elements)} line elements")
+            
+            # Find matching lines using partial matching
+            matched_lines = self.find_line_by_partial_match(line_elements, lines)
+            st.info(f"Found {len(matched_lines)} matching lines: {list(matched_lines.keys())}")
+            
+            for line_name, line_element in matched_lines.items():
                 try:
-                    # Get the line value (like cl, m3, m2, etc.)
-                    line_value_element = line_element.find_element(By.XPATH, './/span[contains(@class, "flex")]//span')
-                    line_value = line_value_element.text.strip()
+                    st.success(f"✓ Processing line: {line_name}")
                     
-                    # Check if this is one of the lines we're looking for
-                    if line_value in lines:
-                        st.info(f"Processing Over/Under line: {line_value}")
+                    # Get the full line text for display
+                    line_value = self.extract_line_value(line_element)
+                    st.info(f"Full line text: {line_value}")
+                    
+                    # Click to expand the line
+                    st.info(f"Clicking to expand line...")
+                    line_element.click()
+                    time.sleep(3)
+                    self.take_screenshot(f"02_line_expanded_{line_name}")
+                    
+                    # Look for Betano in the expanded section
+                    try:
+                        st.info("Looking for Betano...")
+                        # Find Betano element
+                        betano_selectors = [
+                            '//a[contains(., "Betano")]',
+                            '//span[contains(., "Betano")]',
+                            '//div[contains(., "Betano")]',
+                            '//*[contains(text(), "Betano")]'
+                        ]
                         
-                        # Click to expand the line
-                        line_element.click()
-                        time.sleep(2)
+                        betano_element = None
+                        for selector in betano_selectors:
+                            try:
+                                elements = self.driver.find_elements(By.XPATH, selector)
+                                for elem in elements:
+                                    if "betano" in elem.text.lower():
+                                        betano_element = elem
+                                        st.success(f"✓ Found Betano: {betano_element.text}")
+                                        break
+                                if betano_element:
+                                    break
+                            except:
+                                continue
                         
-                        # Look for Betano in the expanded section
-                        try:
-                            # Find Betano element
-                            betano_xpath = './/a[contains(., "Betano")]'
-                            betano_element = WebDriverWait(self.driver, 5).until(
-                                EC.presence_of_element_located((By.XPATH, betano_xpath))
-                            )
+                        if betano_element:
+                            # Find the Betano row
+                            betano_row = betano_element.find_element(By.XPATH, './ancestor::div[contains(@class, "flex")][1]')
                             
-                            # Click Betano odds for OVER
-                            over_button_xpath = './/p[contains(@class, "flex")]'
-                            over_buttons = line_element.find_elements(By.XPATH, over_button_xpath)
-                            if len(over_buttons) >= 3:
-                                over_buttons[2].click()  # Click the OVER button for Betano
-                                time.sleep(2)
-                                
-                                # Extract OVER open odds
-                                try:
-                                    over_open_xpath = '//*[@id="app"]/div[1]/div[1]/div/main/div[4]/div[2]/div[2]/div[2]/div[2]/div[2]/div[1]/div[2]/div[3]/div[2]/div[2]'
-                                    over_open_element = WebDriverWait(self.driver, 5).until(
-                                        EC.presence_of_element_located((By.XPATH, over_open_xpath))
-                                    )
-                                    over_open = over_open_element.text.strip()
-                                except:
-                                    over_open = "N/A"
-                                
-                                # Extract OVER close odds
-                                try:
-                                    over_close_xpath = '/html/body/div[1]/div[1]/div[1]/div/main/div[4]/div[2]/div[2]/div[2]/div[2]/div[2]/div[1]/div[2]/div[2]/div/div/div[2]/div'
-                                    over_close_element = WebDriverWait(self.driver, 5).until(
-                                        EC.presence_of_element_located((By.XPATH, over_close_xpath))
-                                    )
-                                    over_close = over_close_element.text.strip()
-                                except:
-                                    over_close = "N/A"
-                                
-                                # Close the popup
-                                self.driver.find_element(By.TAG_NAME, 'body').send_keys('Escape')
-                                time.sleep(1)
+                            # Find all clickable elements in the Betano row
+                            clickable_elements = betano_row.find_elements(By.XPATH, './/p[contains(@class, "cursor-pointer")] | .//div[contains(@class, "cursor-pointer")] | .//button')
                             
-                            # Click Betano odds for UNDER
-                            under_button_xpath = './/p[contains(@class, "flex")]'
-                            under_buttons = line_element.find_elements(By.XPATH, under_button_xpath)
-                            if len(under_buttons) >= 4:
-                                under_buttons[3].click()  # Click the UNDER button for Betano
-                                time.sleep(2)
-                                
-                                # Extract UNDER open odds
+                            st.info(f"Found {len(clickable_elements)} clickable elements in Betano row")
+                            
+                            # Try to click the first two (Over and Under)
+                            over_open, over_close, under_open, under_close = "N/A", "N/A", "N/A", "N/A"
+                            
+                            if len(clickable_elements) >= 2:
+                                # Click Over (first element)
                                 try:
-                                    under_open_xpath = '//*[@id="app"]/div[1]/div[1]/div/main/div[4]/div[2]/div[2]/div[2]/div[2]/div[2]/div[1]/div[2]/div[3]/div[2]/div[2]'
-                                    under_open_element = WebDriverWait(self.driver, 5).until(
-                                        EC.presence_of_element_located((By.XPATH, under_open_xpath))
-                                    )
-                                    under_open = under_open_element.text.strip()
-                                except:
-                                    under_open = "N/A"
+                                    st.info("Clicking Over button...")
+                                    clickable_elements[0].click()
+                                    time.sleep(2)
+                                    self.take_screenshot(f"03_over_popup_{line_name}")
+                                    
+                                    # Extract OVER odds
+                                    over_open, over_close = self.extract_popup_odds("Over")
+                                    
+                                    # Close popup
+                                    self.driver.find_element(By.TAG_NAME, 'body').send_keys('Escape')
+                                    time.sleep(1)
+                                except Exception as e:
+                                    st.warning(f"Could not process Over: {e}")
                                 
-                                # Extract UNDER close odds
+                                # Click Under (second element)
                                 try:
-                                    under_close_xpath = '//*[@id="app"]/div[1]/div[1]/div/main/div[4]/div[2]/div[2]/div[2]/div[2]/div[2]/div[1]/div[2]/div[2]/div/div/div[2]/div'
-                                    under_close_element = WebDriverWait(self.driver, 5).until(
-                                        EC.presence_of_element_located((By.XPATH, under_close_xpath))
-                                    )
-                                    under_close = under_close_element.text.strip()
-                                except:
-                                    under_close = "N/A"
-                                
-                                # Close the popup
-                                self.driver.find_element(By.TAG_NAME, 'body').send_keys('Escape')
-                                time.sleep(1)
+                                    st.info("Clicking Under button...")
+                                    clickable_elements[1].click()
+                                    time.sleep(2)
+                                    self.take_screenshot(f"04_under_popup_{line_name}")
+                                    
+                                    # Extract UNDER odds
+                                    under_open, under_close = self.extract_popup_odds("Under")
+                                    
+                                    # Close popup
+                                    self.driver.find_element(By.TAG_NAME, 'body').send_keys('Escape')
+                                    time.sleep(1)
+                                except Exception as e:
+                                    st.warning(f"Could not process Under: {e}")
                             
                             # Store results
-                            results[line_value] = {
+                            results[line_name] = {
+                                'line_value': line_value,
                                 'over_open': over_open,
                                 'over_close': over_close,
                                 'under_open': under_open,
                                 'under_close': under_close
                             }
                             
-                        except Exception as e:
-                            st.warning(f"Could not find Betano for line {line_value}: {str(e)}")
-                            continue
+                        else:
+                            st.warning("✗ Could not find Betano")
                             
+                    except Exception as e:
+                        st.error(f"Error with Betano for line {line_name}: {str(e)}")
+                        
                 except Exception as e:
-                    st.warning(f"Error processing line {line_value}: {str(e)}")
-                    continue
+                    st.error(f"Error processing line {line_name}: {str(e)}")
             
             return results
             
@@ -135,262 +226,129 @@ class OddsScraper:
             st.error(f"Error scraping Over/Under: {str(e)}")
             return {}
     
-    def scrape_handicap_odds(self, url, handicap_lines):
+    def extract_popup_odds(self, bet_type):
+        """Extract open and close odds from popup"""
+        open_odds, close_odds = "N/A", "N/A"
+        
         try:
-            self.driver.get(url)
-            time.sleep(5)
+            # Try multiple XPath patterns for open odds
+            open_selectors = [
+                '//*[@id="app"]/div[1]/div[1]/div/main/div[4]/div[2]/div[2]/div[2]/div[2]/div[2]/div[1]/div[2]/div[3]/div[2]/div[2]',
+                '//div[contains(text(), "Opening")]/following-sibling::div',
+                '//div[contains(@class, "open")]',
+                '//span[contains(text(), "Open")]/following-sibling::span'
+            ]
             
-            # Click handicap tab
-            handicap_xpath = '//*[@id="app"]/div[1]/div[1]/div/main/div[4]/div[2]/div[2]/div[1]/div[1]/ul/li[4]/a/div'
-            handicap_tab = WebDriverWait(self.driver, 10).until(
-                EC.element_to_be_clickable((By.XPATH, handicap_xpath))
-            )
-            handicap_tab.click()
-            time.sleep(3)
-            
-            results = {}
-            
-            # Find all line elements in Handicap tab
-            line_elements = self.driver.find_elements(By.XPATH, '//div[contains(@class, "border-black-borders") and contains(@class, "hover:bg-gray-light") and contains(@class, "flex") and contains(@class, "h-9") and contains(@class, "cursor-pointer")]')
-            
-            for line_element in line_elements:
+            for selector in open_selectors:
                 try:
-                    # Get the line value (like hcl, hm3, hm2, etc.)
-                    line_value_element = line_element.find_element(By.XPATH, './/span[contains(@class, "flex")]//span')
-                    line_value = line_value_element.text.strip()
-                    
-                    # Check if this is one of the handicap lines we're looking for
-                    if line_value in handicap_lines:
-                        st.info(f"Processing Handicap line: {line_value}")
-                        
-                        # Click to expand the line
-                        line_element.click()
-                        time.sleep(2)
-                        
-                        # Look for Betano in the expanded section
-                        try:
-                            # Find Betano element
-                            betano_xpath = './/a[contains(., "Betano")]'
-                            betano_element = WebDriverWait(self.driver, 5).until(
-                                EC.presence_of_element_located((By.XPATH, betano_xpath))
-                            )
-                            
-                            # Click Betano odds for GUEST
-                            guest_button_xpath = '//*[@id="app"]/div[1]/div[1]/div/main/div[4]/div[2]/div[2]/div[2]/div[2]/div[2]/div[1]/div[2]/div[3]/div/div/p'
-                            guest_button = WebDriverWait(self.driver, 5).until(
-                                EC.element_to_be_clickable((By.XPATH, guest_button_xpath))
-                            )
-                            guest_button.click()
-                            time.sleep(2)
-                            
-                            # Extract GUEST open odds
-                            try:
-                                guest_open_xpath = '//*[@id="app"]/div[1]/div[1]/div/main/div[4]/div[2]/div[2]/div[2]/div[2]/div[2]/div[1]/div[2]/div[3]/div/div/p'
-                                guest_open_element = WebDriverWait(self.driver, 5).until(
-                                    EC.presence_of_element_located((By.XPATH, guest_open_xpath))
-                                )
-                                guest_open = guest_open_element.text.strip()
-                            except:
-                                guest_open = "N/A"
-                            
-                            # Extract GUEST close odds
-                            try:
-                                guest_close_xpath = '//*[@id="app"]/div[1]/div[1]/div/main/div[4]/div[2]/div[2]/div[2]/div[2]/div[2]/div[1]/div[2]/div[3]/div/div/p'
-                                guest_close_element = WebDriverWait(self.driver, 5).until(
-                                    EC.presence_of_element_located((By.XPATH, guest_close_xpath))
-                                )
-                                guest_close = guest_close_element.text.strip()
-                            except:
-                                guest_close = "N/A"
-                            
-                            # Close the popup
-                            self.driver.find_element(By.TAG_NAME, 'body').send_keys('Escape')
-                            time.sleep(1)
-                            
-                            # Click Betano odds for AWAY
-                            away_button_xpath = '//*[@id="app"]/div[1]/div[1]/div/main/div[4]/div[2]/div[2]/div[2]/div[2]/div[2]/div[1]/div[2]/div[3]/div/div/p'
-                            away_button = WebDriverWait(self.driver, 5).until(
-                                EC.element_to_be_clickable((By.XPATH, away_button_xpath))
-                            )
-                            away_button.click()
-                            time.sleep(2)
-                            
-                            # Extract AWAY open odds
-                            try:
-                                away_open_xpath = '//*[@id="app"]/div[1]/div[1]/div/main/div[4]/div[2]/div[2]/div[2]/div[2]/div[2]/div[1]/div[2]/div[3]/div/div/p'
-                                away_open_element = WebDriverWait(self.driver, 5).until(
-                                    EC.presence_of_element_located((By.XPATH, away_open_xpath))
-                                )
-                                away_open = away_open_element.text.strip()
-                            except:
-                                away_open = "N/A"
-                            
-                            # Extract AWAY close odds
-                            try:
-                                away_close_xpath = '//*[@id="app"]/div[1]/div[1]/div/main/div[4]/div[2]/div[2]/div[2]/div[2]/div[2]/div[1]/div[2]/div[3]/div/div/p'
-                                away_close_element = WebDriverWait(self.driver, 5).until(
-                                    EC.presence_of_element_located((By.XPATH, away_close_xpath))
-                                )
-                                away_close = away_close_element.text.strip()
-                            except:
-                                away_close = "N/A"
-                            
-                            # Close the popup
-                            self.driver.find_element(By.TAG_NAME, 'body').send_keys('Escape')
-                            time.sleep(1)
-                            
-                            # Store handicap results
-                            results[line_value] = {
-                                'guest_open': guest_open,
-                                'guest_close': guest_close,
-                                'away_open': away_open,
-                                'away_close': away_close
-                            }
-                            
-                        except Exception as e:
-                            st.warning(f"Could not find Betano for handicap line {line_value}: {str(e)}")
-                            continue
-                            
-                except Exception as e:
-                    st.warning(f"Error processing handicap line {line_value}: {str(e)}")
+                    element = self.driver.find_element(By.XPATH, selector)
+                    if element.text.strip():
+                        open_odds = element.text.strip()
+                        st.success(f"{bet_type} Open: {open_odds}")
+                        break
+                except:
                     continue
             
-            return results
+            # Try multiple XPath patterns for close odds
+            close_selectors = [
+                '/html/body/div[1]/div[1]/div[1]/div/main/div[4]/div[2]/div[2]/div[2]/div[2]/div[2]/div[1]/div[2]/div[2]/div/div/div[2]/div',
+                '//div[contains(text(), "Closing")]/following-sibling::div',
+                '//div[contains(@class, "close")]',
+                '//span[contains(text(), "Close")]/following-sibling::span'
+            ]
             
+            for selector in close_selectors:
+                try:
+                    element = self.driver.find_element(By.XPATH, selector)
+                    if element.text.strip():
+                        close_odds = element.text.strip()
+                        st.success(f"{bet_type} Close: {close_odds}")
+                        break
+                except:
+                    continue
+                    
         except Exception as e:
-            st.error(f"Error scraping Handicap: {str(e)}")
-            return {}
+            st.warning(f"Error extracting {bet_type} odds: {e}")
+        
+        return open_odds, close_odds
     
     def close(self):
         self.driver.quit()
 
 def main():
-    st.title("OddsPortal Advanced Odds Scraper")
+    st.title("OddsPortal Smart Scraper")
+    
+    st.info("🎯 This version uses smart matching for lines like 'cl', 'm3', etc.")
     
     # Input section
     url = st.text_input("Enter OddsPortal URL:", placeholder="https://www.oddsportal.com/...")
     
-    col1, col2 = st.columns(2)
+    over_under_lines = st.text_input("Lines to scrape (comma-separated):", value="cl, m3, m2, m1, p1, p2, p3")
     
-    with col1:
-        over_under_lines = st.text_input("Over/Under Lines (comma-separated):", placeholder="cl, m3, m2, m1, p1, p2, p3")
+    st.info("""
+    **Line mappings:**
+    - **cl**: +2.25, +2.5, +2.75
+    - **m3**: +3.25, +3.5, +3.75  
+    - **m2**: +2.75, +3.0, +3.25
+    - **m1**: +2.25, +2.5, +2.75
+    - **p1**: +1.75, +2.0, +2.25
+    - **p2**: +1.25, +1.5, +1.75
+    - **p3**: +0.75, +1.0, +1.25
+    """)
     
-    with col2:
-        handicap_lines = st.text_input("Handicap Lines (comma-separated):", placeholder="hcl, hm3, hm2, hm1, hp1, hp2, hp3")
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        scrape_over_under = st.button("Scrape Over/Under Odds")
-    
-    with col2:
-        scrape_handicap = st.button("Scrape Handicap Odds")
-    
-    with col3:
-        scrape_both = st.button("Scrape Both")
-    
-    if (scrape_over_under or scrape_both) and url and over_under_lines:
-        lines = [line.strip() for line in over_under_lines.split(",")]
-        
-        with st.spinner("Scraping Over/Under odds..."):
-            scraper = OddsScraper()
-            try:
-                over_under_results = scraper.scrape_over_under_odds(url, lines)
-                
-                if over_under_results:
-                    st.success("Successfully scraped Over/Under odds!")
-                    
-                    # Create DataFrame for display
-                    data = []
-                    for line, odds_data in over_under_results.items():
-                        data.append({
-                            'Line': line,
-                            'Over Open': odds_data.get('over_open', 'N/A'),
-                            'Over Close': odds_data.get('over_close', 'N/A'),
-                            'Under Open': odds_data.get('under_open', 'N/A'),
-                            'Under Close': odds_data.get('under_close', 'N/A')
-                        })
-                    
-                    df = pd.DataFrame(data)
-                    st.dataframe(df)
-                    
-                    # Download JSON
-                    json_data = json.dumps(over_under_results, indent=2)
-                    st.download_button(
-                        label="Download Over/Under JSON",
-                        data=json_data,
-                        file_name="over_under_odds.json",
-                        mime="application/json"
-                    )
-                else:
-                    st.warning("No Over/Under odds found for the specified lines.")
-                    
-            except Exception as e:
-                st.error(f"Error: {str(e)}")
-            finally:
-                scraper.close()
-    
-    if (scrape_handicap or scrape_both) and url and handicap_lines:
-        lines = [line.strip() for line in handicap_lines.split(",")]
-        
-        with st.spinner("Scraping Handicap odds..."):
-            scraper = OddsScraper()
-            try:
-                handicap_results = scraper.scrape_handicap_odds(url, lines)
-                
-                if handicap_results:
-                    st.success("Successfully scraped Handicap odds!")
-                    
-                    # Create DataFrame for display
-                    data = []
-                    for line, odds_data in handicap_results.items():
-                        data.append({
-                            'Line': line,
-                            'Guest Open': odds_data.get('guest_open', 'N/A'),
-                            'Guest Close': odds_data.get('guest_close', 'N/A'),
-                            'Away Open': odds_data.get('away_open', 'N/A'),
-                            'Away Close': odds_data.get('away_close', 'N/A')
-                        })
-                    
-                    df = pd.DataFrame(data)
-                    st.dataframe(df)
-                    
-                    # Download JSON
-                    json_data = json.dumps(handicap_results, indent=2)
-                    st.download_button(
-                        label="Download Handicap JSON",
-                        data=json_data,
-                        file_name="handicap_odds.json",
-                        mime="application/json"
-                    )
-                else:
-                    st.warning("No Handicap odds found for the specified lines.")
-                    
-            except Exception as e:
-                st.error(f"Error: {str(e)}")
-            finally:
-                scraper.close()
-    
-    if scrape_both and url and over_under_lines and handicap_lines:
-        # Combine results
-        all_results = {
-            "over_under": over_under_results if 'over_under_results' in locals() else {},
-            "handicap": handicap_results if 'handicap_results' in locals() else {}
-        }
-        
-        if all_results["over_under"] or all_results["handicap"]:
-            st.success("Scraping completed!")
+    if st.button("Scrape Over/Under Odds"):
+        if url and over_under_lines:
+            lines = [line.strip() for line in over_under_lines.split(",")]
             
-            # Download combined JSON
-            json_data = json.dumps(all_results, indent=2)
-            st.download_button(
-                label="Download All Results JSON",
-                data=json_data,
-                file_name="all_odds_results.json",
-                mime="application/json"
-            )
+            with st.spinner("Scraping with smart line matching..."):
+                scraper = OddsScraper(debug=True)
+                try:
+                    results = scraper.scrape_over_under_odds(url, lines)
+                    
+                    if results:
+                        st.success("🎉 Successfully scraped Over/Under odds!")
+                        
+                        # Create DataFrame for display
+                        data = []
+                        for line_name, odds_data in results.items():
+                            data.append({
+                                'Line': line_name,
+                                'Full Text': odds_data.get('line_value', ''),
+                                'Over Open': odds_data.get('over_open', 'N/A'),
+                                'Over Close': odds_data.get('over_close', 'N/A'),
+                                'Under Open': odds_data.get('under_open', 'N/A'),
+                                'Under Close': odds_data.get('under_close', 'N/A')
+                            })
+                        
+                        df = pd.DataFrame(data)
+                        st.dataframe(df)
+                        
+                        # Download JSON
+                        json_data = json.dumps(results, indent=2)
+                        st.download_button(
+                            label="Download JSON",
+                            data=json_data,
+                            file_name="odds_results.json",
+                            mime="application/json"
+                        )
+                    else:
+                        st.error("❌ No odds found. Check the debug information above.")
+                        
+                except Exception as e:
+                    st.error(f"Error: {str(e)}")
+                finally:
+                    scraper.close()
+        else:
+            st.warning("Please enter both URL and lines.")
 
 if __name__ == "__main__":
     main()
-         
+                          
+                               
+            
+           
+            
+          
+                     
+   
       
