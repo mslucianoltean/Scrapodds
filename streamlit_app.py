@@ -159,7 +159,7 @@ class OddsportalScraper:
             
             st.write(f"✅ Găsite {len(odds_cells)} celule cu cote")
             
-            # Extrage cotele prin hover
+            # Extrage cotele prin hover - AICI ERA EROAREA
             st.write("🔄 Hover pe prima cotă...")
             self.actions.move_to_element(odds_cells,[object Object],).perform()
             time.sleep(2)
