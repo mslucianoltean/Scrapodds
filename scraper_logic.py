@@ -1,166 +1,87 @@
-# scraper_logic.py (REVENIM LA CE FUNCȚIONA)
-
-import os
-import time
-from collections import defaultdict
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service 
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from selenium.common.exceptions import NoSuchElementException
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC 
-
-def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
+def scrape_debug_complete(ou_link, ah_link):
+    from selenium import webdriver
+    from selenium.webdriver.chrome.service import Service
+    from selenium.webdriver.chrome.options import Options
+    from selenium.webdriver.common.by import By
+    import os
+    import time
     
-    results = defaultdict(dict)
+    results = {'Debug': 'Analiză completă'}
     driver = None
     
-    # Configurație simplă care funcționa
     chrome_options = Options()
     chrome_options.add_argument("--headless")
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--window-size=1920,1080")
     
     chrome_options.binary_location = os.environ.get("GOOGLE_CHROME_BIN", "/usr/bin/chromium")
     chromedriver_path = os.environ.get("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
-
+    
     try:
         service = Service(chromedriver_path)
         driver = webdriver.Chrome(service=service, options=chrome_options)
         
         # ----------------------------------------------------
-        # OVER/UNDER - METODA SIMPLĂ
+        # DEBUG OVER/UNDER
         # ----------------------------------------------------
-        print("=== ÎNCEPE OU ===")
+        print("=== DEBUG OVER/UNDER ===")
         driver.get(ou_link)
-        time.sleep(5)  # Așteaptă încărcarea
+        time.sleep(8)  # Așteaptă mai mult
         
-        # 1. GĂSEȘTE TAB-UL OVER/UNDER ȘI DĂ CLICK
-        tab_element = driver.find_element(By.XPATH, "//div[text()='Over/Under']")
-        driver.execute_script("arguments[0].click();", tab_element)
-        print("✓ Click pe Over/Under tab")
-        time.sleep(3)
+        # 1. Ce elemente cu text "Over/Under" există?
+        ou_elements = driver.find_elements(By.XPATH, "//*[contains(text(), 'Over/Under')]")
+        results['OU_Elements_Found'] = len(ou_elements)
+        results['OU_Elements_Text'] = [elem.text for elem in ou_elements[:3]]
         
-        # 2. GĂSEȘTE TOATE LINIILE
-        line_elements = driver.find_elements(By.XPATH, "//div[contains(@class, 'table-main__row--details-line-wrapper')]")
-        print(f"Găsite {len(line_elements)} linii")
+        # 2. Ce elemente cu clasa care conține "table" există?
+        table_elements = driver.find_elements(By.XPATH, "//div[contains(@class, 'table')]")
+        results['Table_Elements_Found'] = len(table_elements)
+        results['Table_Classes'] = [elem.get_attribute('class') for elem in table_elements[:3]]
         
-        ou_lines = []
-        for line_element in line_elements[:3]:  # Primele 3 linii
-            try:
-                # Click pe linie
-                driver.execute_script("arguments[0].click();", line_element)
-                time.sleep(2)
-                
-                # Găsește Betano în liniile care apar
-                betano_row = line_element.find_element(By.XPATH, ".//a[contains(@href, 'betano')]/ancestor::div[contains(@class, 'table-main__row--details-line')]")
-                
-                # Extrage linia
-                line_text = betano_row.find_element(By.XPATH, ".//span[contains(@class, 'table-main__detail-line-more')]").text
-                
-                # Extrage cotele
-                odds_elements = betano_row.find_elements(By.XPATH, ".//div[contains(@class, 'odds')]")
-                home_odd = odds_elements[0].text
-                away_odd = odds_elements[1].text
-                
-                # Extrage opening odds (dă click pe cote)
-                opening_home = get_opening_odds_simple(driver, odds_elements[0])
-                opening_away = get_opening_odds_simple(driver, odds_elements[1])
-                
-                ou_lines.append({
-                    'Line': line_text,
-                    'Home_Over_Close': home_odd,
-                    'Home_Over_Open': opening_home,
-                    'Away_Under_Close': away_odd,
-                    'Away_Under_Open': opening_away,
-                    'Bookmaker': 'Betano'
-                })
-                
-                print(f"✓ Linie OU găsită: {line_text}")
-                break  # O linie e suficientă
-                
-            except Exception as e:
-                print(f"Eroare linie: {e}")
-                continue
+        # 3. Ce elemente cu clasa care conține "row" există?
+        row_elements = driver.find_elements(By.XPATH, "//div[contains(@class, 'row')]")
+        results['Row_Elements_Found'] = len(row_elements)
         
-        results['Over_Under_Lines'] = ou_lines
+        # 4. Ce elemente cu clasa care conține "odds" există?
+        odds_elements = driver.find_elements(By.XPATH, "//*[contains(@class, 'odds')]")
+        results['Odds_Elements_Found'] = len(odds_elements)
         
-        # ----------------------------------------------------
-        # ASIAN HANDICAP - ACEEAȘI METODĂ
-        # ----------------------------------------------------
-        print("=== ÎNCEPE AH ===")
-        driver.get(ah_link)
-        time.sleep(5)
+        # 5. Există elemente cu "Betano"?
+        betano_elements = driver.find_elements(By.XPATH, "//*[contains(text(), 'Betano') or contains(text(), 'betano')]")
+        results['Betano_Elements_Found'] = len(betano_elements)
         
-        # 1. GĂSEȘTE TAB-UL ASIAN HANDICAP
-        ah_tab = driver.find_element(By.XPATH, "//div[text()='Asian Handicap']")
-        driver.execute_script("arguments[0].click();", ah_tab)
-        print("✓ Click pe Asian Handicap tab")
-        time.sleep(3)
+        # 6. Ce butoane/div-uri clickable există?
+        clickable_elements = driver.find_elements(By.XPATH, "//button | //div[@onclick] | //div[contains(@class, 'click')]")
+        results['Clickable_Elements'] = len(clickable_elements)
         
-        # 2. GĂSEȘTE LINIILE AH
-        ah_line_elements = driver.find_elements(By.XPATH, "//div[contains(@class, 'table-main__row--details-line-wrapper')]")
-        print(f"Găsite {len(ah_line_elements)} linii AH")
+        # 7. Salvează screenshot să vedem ce vede
+        driver.save_screenshot('/tmp/debug_screenshot.png')
+        results['Screenshot'] = 'Salvat'
         
-        ah_lines = []
-        for line_element in ah_line_elements[:3]:
-            try:
-                driver.execute_script("arguments[0].click();", line_element)
-                time.sleep(2)
-                
-                betano_row = line_element.find_element(By.XPATH, ".//a[contains(@href, 'betano')]/ancestor::div[contains(@class, 'table-main__row--details-line')]")
-                
-                line_text = betano_row.find_element(By.XPATH, ".//span[contains(@class, 'table-main__detail-line-more')]").text
-                
-                odds_elements = betano_row.find_elements(By.XPATH, ".//div[contains(@class, 'odds')]")
-                home_odd = odds_elements[0].text
-                away_odd = odds_elements[1].text
-                
-                opening_home = get_opening_odds_simple(driver, odds_elements[0])
-                opening_away = get_opening_odds_simple(driver, odds_elements[1])
-                
-                ah_lines.append({
-                    'Line': line_text,
-                    'Home_Over_Close': home_odd,
-                    'Home_Over_Open': opening_home,
-                    'Away_Under_Close': away_odd,
-                    'Away_Under_Open': opening_away,
-                    'Bookmaker': 'Betano'
-                })
-                
-                print(f"✓ Linie AH găsită: {line_text}")
-                break
-                
-            except Exception as e:
-                print(f"Eroare linie AH: {e}")
-                continue
+        # 8. Extrage un sample din page source
+        page_source = driver.page_source
+        results['Page_Source_Length'] = len(page_source)
         
-        results['Handicap_Lines'] = ah_lines
+        # Caută pattern-uri specifice în page source
+        if 'Over/Under' in page_source:
+            results['OU_In_Source'] = 'DA'
+        else:
+            results['OU_In_Source'] = 'NU'
             
+        if 'betano' in page_source.lower():
+            results['Betano_In_Source'] = 'DA' 
+        else:
+            results['Betano_In_Source'] = 'NU'
+        
+        print("=== DEBUG COMPLET ===")
+        
     except Exception as e:
-        results['Error'] = f"Eroare: {str(e)}"
+        results['Error'] = str(e)
     finally:
         if driver:
             driver.quit()
     
-    return dict(results)
+    return results
 
-def get_opening_odds_simple(driver, odds_element):
-    """Simplu - dă click pe cota și extrage din popup"""
-    try:
-        driver.execute_script("arguments[0].click();", odds_element)
-        time.sleep(1)
-        
-        # Găsește popup-ul cu opening odds
-        popup = driver.find_element(By.XPATH, "//*[@id='tooltip_v']")
-        opening_text = popup.find_element(By.XPATH, ".//p[@class='odds-text']").text
-        
-        # Închide popup
-        driver.find_element(By.XPATH, "//body").click()
-        time.sleep(0.5)
-        
-        return opening_text
-    except:
-        return 'N/A'
+# FOLOSEȘTE DOAR ASTA PENTRU DEBUG!
+def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
+    return scrape_debug_complete(ou_link, ah_link)
