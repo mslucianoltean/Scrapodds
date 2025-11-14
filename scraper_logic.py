@@ -1,4 +1,5 @@
-# scraper_logic.py (VERSIUNEA FINALĂ ȘI INTEGRALĂ - ADAPTATĂ LA DIVS)
+
+# scraper_logic.py (VERSIUNEA FINALĂ ȘI INTEGRALĂ - CU ANCORĂ REACT)
 
 import os
 import time
@@ -47,15 +48,12 @@ def ffi2(driver, xpath):
 def get_bookmaker_name_from_div(driver, row_xpath):
     """Extrage numele bookmakerului dintr-un rând bazat pe DIV."""
     # Presupunem că numele este într-un link (<a>) în interiorul rândului (div)
-    # Am ajustat calea pentru a căuta numele în structura complexă OddsPortal
     xpath = f'{row_xpath}//div[@class="table-main__row-content"]//a'
     element = find_element(driver, By.XPATH, xpath)
     return element.text.strip() if element else None
 
 
-# ATENȚIE: FUNCȚIILE DE HOVER ȘI DE EXTRACȚIE COTE DE DESCHIDERE SUNT DEZACTIVATE TEMPORAR
-# Aceasta este cea mai probabilă cauză a erorilor de runtime silențioase.
-
+# COTE DE DESCHIDERE DEZACTIVATE PENTRU STABILITATE
 def get_opening_odd(driver, xpath):
     """DEZACTIVAT: Funcția de hover care cauzează instabilitate."""
     return 'DEZACTIVAT (instabil)'
@@ -65,19 +63,18 @@ def fffi(driver, xpath):
     return ffi(driver, xpath) 
 
 # ------------------------------------------------------------------------------
-# 🚀 FUNCȚIA PRINCIPALĂ DE SCRAPING (ADAPTATĂ LA DIVS)
+# 🚀 FUNCȚIA PRINCIPALĂ DE SCRAPING (ADAPTATĂ LA DIVS & REACT ANCHOR)
 # ------------------------------------------------------------------------------
 
 def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
     """
     Scrapează liniile de Over/Under și Handicap din link-uri directe (ou_link și ah_link).
-    Folosește structura DIV-based și dezactivează extragerea cotelor de deschidere.
     """
     
     global TARGET_BOOKMAKER 
     
     results = defaultdict(dict)
-    results['Match'] = 'Scraping activat' 
+    results['Match'] = 'Scraping activat' # Placeholder 
     driver = None 
 
     # --- Inițializare driver ---
@@ -102,10 +99,10 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
     try:
         wait = WebDriverWait(driver, 20)
         
-        # Ancora H1 (pentru a aștepta încărcarea)
-        match_title_xpath = '//*[@id="col-content"]/h1'
+        # ANCORA NOUĂ (React Header)
+        match_title_xpath = '//*[@id="react-event-header"]/div/div/div[1]'
         
-        # Ancora specifică pentru elementul părinte al rândurilor de cote (bazat pe structura absolută anterioară)
+        # Ancora pentru elementul părinte al rândurilor de cote (structura DIV)
         base_rows_xpath = '/html/body/div[1]/div[1]/div[1]/div/main/div[4]/div[2]/div[2]/div[2]'
 
         # ----------------------------------------------------
@@ -114,10 +111,10 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         driver.get(ou_link)
         
         try:
-            # Așteaptă titlul (ancora)
+            # Așteaptă titlul (ancora React)
             wait.until(EC.visibility_of_element_located((By.XPATH, match_title_xpath)))
         except:
-            results['Error'] = "Eroare la încărcarea paginii Over/Under (Ancora H1 nu a fost găsită)."
+            results['Error'] = "Eroare la încărcarea paginii Over/Under (Noua ancoră React nu a fost găsită)."
             driver.quit()
             return dict(results)
 
@@ -129,18 +126,14 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         
         # Extrage liniile OU (rândurile sunt div[j])
         for j in range(1, 101):
-            # Rândul complet: /html/body/.../div[2]/div[j]
             row_container_xpath = f'{base_rows_xpath}/div[{j}]'
             
-            # Verifică dacă rândul există și nu este header-ul
             if not find_element(driver, By.XPATH, row_container_xpath) and j > 5: break
             
-            # Extrage numele bookmakerului
             bm_name = get_bookmaker_name_from_div(driver, row_container_xpath)
             
             if bm_name and TARGET_BOOKMAKER in bm_name:
                 
-                # NOU: Cotele sunt în celulele DIV imediate din interiorul rândului (div[1], div[2])
                 home_odd_xpath = f'{row_container_xpath}/div[1]' # Poziția Home/Over
                 away_odd_xpath = f'{row_container_xpath}/div[2]' # Poziția Away/Under
                 
