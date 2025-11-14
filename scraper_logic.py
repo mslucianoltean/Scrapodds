@@ -1,4 +1,4 @@
-# scraper_logic.py (VERSIUNEA 13.0 - AȘTEPTARE PE CLASA CONTAINERULUI TABELĂ)
+# scraper_logic.py (VERSIUNEA 14.0 - CLICK FALS DE NAVIGARE)
 
 import os
 import time
@@ -109,8 +109,12 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
     try:
         wait = WebDriverWait(driver, 30)
         
-        # Punctul de așteptare: Containerul general al tabelei (care ar trebui să se încarce)
-        MAIN_TABLE_CONTAINER_XPATH = '//div[contains(@class, "table-main")]'
+        # Punctul de așteptare: Navigarea (din HTML-ul furnizat)
+        NAVIGATION_WAIT_XPATH = '//div[contains(@data-testid, "bet-types-nav")]'
+        
+        # Elementele de clic pentru navigare (din HTML-ul furnizat)
+        AH_TAB_XPATH = "//ul[contains(@class, 'hidden-links')]//li[span[div[text()='Asian Handicap']]]"
+        OU_TAB_XPATH = "//ul[contains(@class, 'hidden-links')]//li[span[div[text()='Over/Under']]]"
         
         # Căi relative (din interiorul rândului Betano) - vizează direct <p>
         OU_HOME_ODD_REL_PATH = '/div[3]/div/div/p' 
@@ -136,23 +140,31 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
             driver.refresh()
             time.sleep(2) 
             
-            # Așteptăm ca MĂCAR containerul tabelei să fie vizibil
-            wait.until(EC.visibility_of_element_located((By.XPATH, MAIN_TABLE_CONTAINER_XPATH)))
+            # Așteptăm elementul de navigare
+            wait.until(EC.visibility_of_element_located((By.XPATH, NAVIGATION_WAIT_XPATH)))
+            
+            # Clic fals: Clic pe Asian Handicap (pentru a forța randarea)
+            ffi2(driver, AH_TAB_XPATH)
+            time.sleep(1)
+
+            # Clic corect: Clic pe Over/Under (pentru a ne asigura că suntem pe tabul corect)
+            ffi2(driver, OU_TAB_XPATH)
+            time.sleep(1)
+            
+            # Așteptăm ca prima linie de cote să fie vizibilă - ACUM AR TREBUI SĂ FUNCȚIONEZE
+            wait.until(EC.visibility_of_element_located((By.XPATH, LINE_ROWS_XPATH)))
 
         except:
-            results['Error'] = f"Eroare la încărcarea paginii Over/Under după refresh (Containerul tabelei '{MAIN_TABLE_CONTAINER_XPATH}' nu a fost găsit în 30s)."
+            results['Error'] = f"Eroare la încărcarea paginii Over/Under (Eșec după clicurile de navigație. Liniile de cote '{LINE_ROWS_XPATH}' nu au apărut în 30s)."
             driver.quit()
             return dict(results)
         
         ou_lines = []
-        time.sleep(3) # Așteptăm ca JS să populeze liniile în interiorul tabelei
+        time.sleep(3) 
         
         # Căutăm toate rândurile de linii de cote (elemente)
         all_line_rows = driver.find_elements(By.XPATH, LINE_ROWS_XPATH)
         
-        if not all_line_rows:
-            results['Warning_OU'] = "A fost găsit containerul tabelei, dar nu și rândurile de linii de cote. Posibil JavaScript eșuat."
-
         # Iterăm prin rândurile găsite
         for line_row_element in all_line_rows:
             
@@ -241,15 +253,28 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         
         driver.get(ah_link)
         
-        # ACȚIUNE 1: Așteptăm body-ul, facem refresh și așteptăm containerul
+        # ACȚIUNE 1: Așteptăm body-ul și facem refresh
         try:
             wait.until(EC.presence_of_element_located((By.XPATH, '//body')))
             driver.refresh()
             time.sleep(2) 
-            # Așteptăm elementul principal
-            wait.until(EC.visibility_of_element_located((By.XPATH, MAIN_TABLE_CONTAINER_XPATH)))
+            
+            # Așteptăm elementul de navigare
+            wait.until(EC.visibility_of_element_located((By.XPATH, NAVIGATION_WAIT_XPATH)))
+
+            # Clic fals: Clic pe Over/Under 
+            ffi2(driver, OU_TAB_XPATH)
+            time.sleep(1)
+
+            # Clic corect: Clic pe Asian Handicap (pentru a ne asigura că suntem pe tabul corect)
+            ffi2(driver, AH_TAB_XPATH)
+            time.sleep(1)
+            
+            # Așteptăm ca prima linie de cote să fie vizibilă 
+            wait.until(EC.visibility_of_element_located((By.XPATH, LINE_ROWS_XPATH)))
+
         except:
-            results['Error'] = f"Eroare la încărcarea paginii Asian Handicap după refresh (Containerul tabelei '{MAIN_TABLE_CONTAINER_XPATH}' nu a fost găsit în 30s)."
+            results['Error'] = f"Eroare la încărcarea paginii Asian Handicap (Eșec după clicurile de navigație. Liniile de cote '{LINE_ROWS_XPATH}' nu au apărut în 30s)."
             driver.quit()
             return dict(results)
         
@@ -258,9 +283,6 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
 
         # Căutăm toate rândurile de cote din interiorul containerului principal
         all_line_rows = driver.find_elements(By.XPATH, LINE_ROWS_XPATH)
-
-        if not all_line_rows:
-            results['Warning_AH'] = "A fost găsit containerul tabelei, dar nu și rândurile de linii de cote. Posibil JavaScript eșuat."
 
         # Extrage liniile AH 
         for line_row_element in all_line_rows:
