@@ -1,4 +1,4 @@
-# scraper_logic.py (VERSIUNEA 18.0 - Clic Explicit pe Tabul OU)
+# scraper_logic.py (VERSIUNEA 19.0 - Clic Direct pe Textul Tabului)
 
 import os
 import time
@@ -38,14 +38,16 @@ def ffi(element_or_driver, by_method, locator):
 
 def ffi2(driver, xpath):
     """Dă click pe elementul de la xpath dacă există (folosind JS)."""
-    element = find_element(driver, By.XPATH, xpath)
-    if element:
-        # Folosim WebDriverWait pentru a aștepta ca elementul să fie click-uibil
-        wait_short = WebDriverWait(driver, 5)
+    try:
+        # Așteptăm elementul să fie click-uibil
+        wait_short = WebDriverWait(driver, 10) # Așteptare mai lungă de 10s pentru tab
         clickable_element = wait_short.until(EC.element_to_be_clickable((By.XPATH, xpath)))
         driver.execute_script("arguments[0].click();", clickable_element)
         return True
-    return False
+    except TimeoutException:
+        return False # Returnăm False dacă nu e găsit/click-uibil în 10s
+    except Exception:
+        return False
 
 def get_opening_odd_from_click(driver, element_to_click_xpath):
     """Simulează click pe cota de închidere, așteaptă popup-ul și extrage cota de deschidere."""
@@ -113,8 +115,8 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         wait = WebDriverWait(driver, 30)
         
         # Punctele de referință
-        OU_TAB_XPATH = "//li[a/div[text()='Over/Under']]"
-        AH_TAB_XPATH = "//li[a/div[text()='Asian Handicap']]"
+        OU_DIV_TEXT_XPATH = "//div[text()='Over/Under']" # Target direct pe div-ul cu textul
+        AH_DIV_TEXT_XPATH = "//div[text()='Asian Handicap']" # Target direct pe div-ul cu textul
         LINE_ROWS_XPATH = '//div[contains(@class, "table-main__row--details-line-wrapper")]'
 
         # Căi interne
@@ -135,8 +137,8 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
             time.sleep(3) 
             
             # ACȚIUNE 2: Clic pe tabul Over/Under pentru a forța încărcarea liniilor
-            if not ffi2(driver, OU_TAB_XPATH):
-                 results['Error'] = f"Eroare: Nu a putut fi găsit/apăsat tabul Over/Under ('{OU_TAB_XPATH}')."
+            if not ffi2(driver, OU_DIV_TEXT_XPATH):
+                 results['Error'] = f"Eroare: Nu a putut fi găsit/apăsat tabul Over/Under ('{OU_DIV_TEXT_XPATH}')."
                  driver.quit()
                  return dict(results)
                  
@@ -242,9 +244,9 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
             driver.refresh()
             time.sleep(3) 
             
-            # ACȚIUNE 2: Clic pe tabul Asian Handicap pentru a forța încărcarea liniilor
-            if not ffi2(driver, AH_TAB_XPATH):
-                 results['Error_AH'] = f"Eroare: Nu a putut fi găsit/apăsat tabul Asian Handicap ('{AH_TAB_XPATH}')."
+            # ACȚIUNE 2: Clic pe tabul Asian Handicap
+            if not ffi2(driver, AH_DIV_TEXT_XPATH):
+                 results['Error_AH'] = f"Eroare: Nu a putut fi găsit/apăsat tabul Asian Handicap ('{AH_DIV_TEXT_XPATH}')."
                  driver.quit()
                  return dict(results)
                  
