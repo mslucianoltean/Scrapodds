@@ -1,4 +1,4 @@
-def scrape_any_bookmaker(ou_link, ah_link):
+def scrape_final_working(ou_link, ah_link):
     from selenium import webdriver
     from selenium.webdriver.chrome.service import Service
     from selenium.webdriver.chrome.options import Options
@@ -7,7 +7,7 @@ def scrape_any_bookmaker(ou_link, ah_link):
     import time
     import re
     
-    results = {'Match': 'Scraping cu orice bookmaker'}
+    results = {'Match': 'Scraping final funcțional'}
     driver = None
     
     chrome_options = Options()
@@ -22,22 +22,19 @@ def scrape_any_bookmaker(ou_link, ah_link):
         driver = webdriver.Chrome(service=service, options=chrome_options)
         
         # ----------------------------------------------------
-        # OVER/UNDER - ORICE BOOKMAKER
+        # OVER/UNDER - CU SELECTORI EXACȚI
         # ----------------------------------------------------
-        print("=== OVER/UNDER - ORICE BOOKMAKER ===")
+        print("=== OVER/UNDER FINAL ===")
         driver.get(ou_link)
         time.sleep(5)
         
-        # 1. CLICK PE TAB OVER/UNDER
-        ou_tabs = driver.find_elements(By.XPATH, "//*[contains(text(), 'Over/Under')]")
-        for tab in ou_tabs:
-            if tab.text == "Over/Under":
-                driver.execute_script("arguments[0].click();", tab)
-                print("✓ Click pe tab Over/Under")
-                time.sleep(3)
-                break
+        # 1. CLICK PE TAB OVER/UNDER (selector exact)
+        ou_tab = driver.find_element(By.XPATH, "//div[text()='Over/Under']")
+        driver.execute_script("arguments[0].click();", ou_tab)
+        print("✓ Click pe tab Over/Under")
+        time.sleep(3)
         
-        # 2. GĂSEȘTE TOATE LINIILE
+        # 2. GĂSEȘTE LINIILE OVER/UNDER
         ou_lines = []
         line_elements = driver.find_elements(By.XPATH, "//*[contains(text(), 'Over/Under +') or contains(text(), 'Over/Under -')]")
         print(f"Găsite {len(line_elements)} linii OU")
@@ -58,57 +55,38 @@ def scrape_any_bookmaker(ou_link, ah_link):
                 driver.execute_script("arguments[0].click();", line_element)
                 time.sleep(2)
                 
-                # 3. GĂSEȘTE PRIMUL BOOKMAKER CU COTE VALIDE
-                # Caută toate rândurile care conțin cote
-                all_rows = driver.find_elements(By.XPATH, "//div[contains(@class, 'row') or contains(@class, 'flex')]")
-                print(f"Rânduri totale găsite: {len(all_rows)}")
+                # 3. GĂSEȘTE BETANO (selector exact din console)
+                betano_link = driver.find_element(By.XPATH, "//a[text()='Betano.ro']")
+                print("✓ Găsit Betano.ro")
                 
-                bookmaker_found = False
-                for row in all_rows:
-                    try:
-                        row_text = row.text
-                        if not row_text or len(row_text) > 200:
-                            continue
-                            
-                        # Verifică dacă rândul conține cote
-                        odds = re.findall(r'\d+\.\d+', row_text)
-                        if len(odds) >= 2:
-                            # Extrage numele bookmaker-ului (primul cuvânt)
-                            bookmaker_name = "Unknown"
-                            words = row_text.split()
-                            if words:
-                                bookmaker_name = words[0]
-                            
-                            # Găsește elementele pentru click
-                            odds_elements = row.find_elements(By.XPATH, ".//*[contains(text(), '.') and string-length(text()) < 6]")
-                            
-                            if len(odds_elements) >= 2:
-                                over_close = odds_elements[0].text
-                                under_close = odds_elements[1].text
-                                
-                                # Extrage opening odds
-                                over_open = get_opening_odds_simple(driver, odds_elements[0])
-                                under_open = get_opening_odds_simple(driver, odds_elements[1])
-                                
-                                ou_lines.append({
-                                    'Line': line_value,
-                                    'Over_Close': over_close,
-                                    'Over_Open': over_open,
-                                    'Under_Close': under_close,
-                                    'Under_Open': under_open,
-                                    'Bookmaker': bookmaker_name
-                                })
-                                
-                                print(f"✓ Găsit bookmaker: {bookmaker_name} | Over: {over_close}/{over_open} | Under: {under_close}/{under_open}")
-                                bookmaker_found = True
-                                break
-                                
-                    except Exception as e:
-                        continue
+                # 4. GĂSEȘTE RÂNDUL BETANO
+                betano_row = betano_link.find_element(By.XPATH, "./ancestor::div[contains(@class, 'row') or contains(@class, 'flex')][1]")
                 
-                if bookmaker_found:
-                    break  # Am găsit un bookmaker, ieșim
+                # 5. EXTRAge COTELE CLOSE (selectori exacti din console)
+                odds_elements = betano_row.find_elements(By.XPATH, ".//p[contains(@class, 'height-content') and contains(@class, 'flex-center')]")
+                
+                if len(odds_elements) >= 2:
+                    over_close = odds_elements[0].text
+                    under_close = odds_elements[1].text
                     
+                    print(f"✓ Cote găsite: Over={over_close}, Under={under_close}")
+                    
+                    # 6. EXTRAge OPENING ODDS
+                    over_open = get_opening_odds_final(driver, odds_elements[0])
+                    under_open = get_opening_odds_final(driver, odds_elements[1])
+                    
+                    ou_lines.append({
+                        'Line': line_value,
+                        'Over_Close': over_close,
+                        'Over_Open': over_open,
+                        'Under_Close': under_close,
+                        'Under_Open': under_open,
+                        'Bookmaker': 'Betano.ro'
+                    })
+                    
+                    print(f"✅ LINIE OU COMPLETĂ: {line_value} | Over: {over_close}/{over_open} | Under: {under_close}/{under_open}")
+                    break
+                
                 # Click back
                 driver.execute_script("arguments[0].click();", line_element)
                 time.sleep(1)
@@ -120,20 +98,17 @@ def scrape_any_bookmaker(ou_link, ah_link):
         results['Over_Under_Lines'] = ou_lines
         
         # ----------------------------------------------------
-        # ASIAN HANDICAP - ORICE BOOKMAKER
+        # ASIAN HANDICAP - ACEAȘI LOGICĂ
         # ----------------------------------------------------
-        print("=== ASIAN HANDICAP - ORICE BOOKMAKER ===")
+        print("=== ASIAN HANDICAP FINAL ===")
         driver.get(ah_link)
         time.sleep(5)
         
         # 1. CLICK PE TAB ASIAN HANDICAP
-        ah_tabs = driver.find_elements(By.XPATH, "//*[contains(text(), 'Asian Handicap')]")
-        for tab in ah_tabs:
-            if "Asian Handicap" in tab.text:
-                driver.execute_script("arguments[0].click();", tab)
-                print("✓ Click pe tab Asian Handicap")
-                time.sleep(3)
-                break
+        ah_tab = driver.find_element(By.XPATH, "//div[text()='Asian Handicap']")
+        driver.execute_script("arguments[0].click();", ah_tab)
+        print("✓ Click pe tab Asian Handicap")
+        time.sleep(3)
         
         # 2. GĂSEȘTE LINIILE ASIAN HANDICAP
         ah_lines = []
@@ -155,52 +130,38 @@ def scrape_any_bookmaker(ou_link, ah_link):
                 driver.execute_script("arguments[0].click();", line_element)
                 time.sleep(2)
                 
-                # 3. GĂSEȘTE PRIMUL BOOKMAKER
-                all_rows = driver.find_elements(By.XPATH, "//div[contains(@class, 'row') or contains(@class, 'flex')]")
-                print(f"Rânduri AH totale găsite: {len(all_rows)}")
+                # 3. GĂSEȘTE BETANO
+                betano_link = driver.find_element(By.XPATH, "//a[text()='Betano.ro']")
+                print("✓ Găsit Betano.ro pentru AH")
                 
-                bookmaker_found = False
-                for row in all_rows:
-                    try:
-                        row_text = row.text
-                        if not row_text or len(row_text) > 200:
-                            continue
-                            
-                        odds = re.findall(r'\d+\.\d+', row_text)
-                        if len(odds) >= 2:
-                            bookmaker_name = "Unknown"
-                            words = row_text.split()
-                            if words:
-                                bookmaker_name = words[0]
-                            
-                            odds_elements = row.find_elements(By.XPATH, ".//*[contains(text(), '.') and string-length(text()) < 6]")
-                            
-                            if len(odds_elements) >= 2:
-                                home_close = odds_elements[0].text
-                                away_close = odds_elements[1].text
-                                
-                                home_open = get_opening_odds_simple(driver, odds_elements[0])
-                                away_open = get_opening_odds_simple(driver, odds_elements[1])
-                                
-                                ah_lines.append({
-                                    'Line': line_value,
-                                    'Home_Close': home_close,
-                                    'Home_Open': home_open,
-                                    'Away_Close': away_close,
-                                    'Away_Open': away_open,
-                                    'Bookmaker': bookmaker_name
-                                })
-                                
-                                print(f"✓ Găsit bookmaker AH: {bookmaker_name} | Home: {home_close}/{home_open} | Away: {away_close}/{away_open}")
-                                bookmaker_found = True
-                                break
-                                
-                    except Exception as e:
-                        continue
+                # 4. GĂSEȘTE RÂNDUL BETANO
+                betano_row = betano_link.find_element(By.XPATH, "./ancestor::div[contains(@class, 'row') or contains(@class, 'flex')][1]")
                 
-                if bookmaker_found:
-                    break
+                # 5. EXTRAge COTELE CLOSE
+                odds_elements = betano_row.find_elements(By.XPATH, ".//p[contains(@class, 'height-content') and contains(@class, 'flex-center')]")
+                
+                if len(odds_elements) >= 2:
+                    home_close = odds_elements[0].text
+                    away_close = odds_elements[1].text
                     
+                    print(f"✓ Cote AH găsite: Home={home_close}, Away={away_close}")
+                    
+                    # 6. EXTRAge OPENING ODDS
+                    home_open = get_opening_odds_final(driver, odds_elements[0])
+                    away_open = get_opening_odds_final(driver, odds_elements[1])
+                    
+                    ah_lines.append({
+                        'Line': line_value,
+                        'Home_Close': home_close,
+                        'Home_Open': home_open,
+                        'Away_Close': away_close,
+                        'Away_Open': away_open,
+                        'Bookmaker': 'Betano.ro'
+                    })
+                    
+                    print(f"✅ LINIE AH COMPLETĂ: {line_value} | Home: {home_close}/{home_open} | Away: {away_close}/{away_open}")
+                    break
+                
                 driver.execute_script("arguments[0].click();", line_element)
                 time.sleep(1)
                     
@@ -218,8 +179,8 @@ def scrape_any_bookmaker(ou_link, ah_link):
     
     return results
 
-def get_opening_odds_simple(driver, odds_element):
-    """Extrage opening odds simplu"""
+def get_opening_odds_final(driver, odds_element):
+    """Extrage opening odds cu selector corect"""
     try:
         original_odd = odds_element.text
         print(f"Click pentru opening odd: {original_odd}")
@@ -229,24 +190,37 @@ def get_opening_odds_simple(driver, odds_element):
         
         opening_odd = 'N/A'
         
-        # Caută orice număr cu . care nu e cel original
-        all_texts = driver.find_elements(By.XPATH, "//*")
-        for elem in all_texts:
-            text = elem.text.strip()
-            if text and text != original_odd and re.match(r'^\d+\.\d+$', text):
-                opening_odd = text
-                print(f"✓ Opening odd găsit: {opening_odd}")
-                break
+        # Caută în tooltip/popup
+        popup_selectors = [
+            "//div[contains(@class, 'tooltip')]//div[contains(text(), '.')]",
+            "//div[contains(@class, 'odds-text')]",
+            "//*[contains(text(), 'Opening odds')]//following-sibling::div[contains(text(), '.')]"
+        ]
         
-        # Închide
+        for selector in popup_selectors:
+            try:
+                elements = driver.find_elements(By.XPATH, selector)
+                for elem in elements:
+                    text = elem.text.strip()
+                    if text and text != original_odd and re.match(r'^\d+\.\d+$', text):
+                        opening_odd = text
+                        print(f"✓ Opening odd găsit: {opening_odd}")
+                        break
+                if opening_odd != 'N/A':
+                    break
+            except:
+                continue
+        
+        # Închide popup
         driver.find_element(By.TAG_NAME, 'body').click()
         time.sleep(1)
         
         return opening_odd
         
-    except:
+    except Exception as e:
+        print(f"Eroare opening odds: {e}")
         return 'N/A'
 
 # FOLOSEȘTE ACEST COD!
 def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
-    return scrape_any_bookmaker(ou_link, ah_link)
+    return scrape_final_working(ou_link, ah_link)
