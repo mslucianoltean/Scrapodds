@@ -100,7 +100,7 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         wait = WebDriverWait(driver, 20)
         
         # ANCORA NOUĂ (React Header)
-        match_title_xpath = '//*[@id="react-event-header"]/div/div/div[1]'
+        match_title_xpath = '/html/body/div[1]/div[1]/div[1]/div/main/div[4]/div[2]/div[1]'
         
         # Ancora pentru elementul părinte al rândurilor de cote (structura DIV)
         base_rows_xpath = '/html/body/div[1]/div[1]/div[1]/div/main/div[4]/div[2]/div[2]/div[2]'
