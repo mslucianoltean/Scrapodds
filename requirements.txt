@@ -1,4 +1,6 @@
-streamlit==1.31.0
-playwright
-nest-asyncio
+streamlit
+selenium
 pandas
+# Necessare pentru Streamlit Cloud pentru a rula Selenium Headless:
+# Acestea vor fi folosite pentru a instala Chromium și chromedriver pe serverul Streamlit.
+# Totuși, Streamlit Cloud necesită setarea secretelor de mediu (vezi mai jos)
