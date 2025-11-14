@@ -1,265 +1,200 @@
-def scrape_via_api_fixed_v2(ou_link, ah_link):
+def scrape_via_direct_urls(ou_link, ah_link):
     import requests
     import re
-    import json
-    import time
-    from collections import defaultdict
-    
-    results = {'Match': 'Scraping via API - Fixat V2'}
-    
-    try:
-        # Extragem ID-ul meciului
-        match_id_match = re.search(r'/([a-zA-Z0-9-]+)-([a-zA-Z0-9]+)/', ou_link)
-        if match_id_match:
-            match_id = match_id_match.group(2)
-            print(f"✓ ID meci extras: {match_id}")
-        else:
-            results['Error'] = "Nu s-a putut extrage ID-ul meciului"
-            return results
-        
-        # Headers mai complet pentru a trece de securitate
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'application/json, text/plain, */*',
-            'Accept-Language': 'en-US,en;q=0.9,ro;q=0.8',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Referer': 'https://www.oddsportal.com/',
-            'Origin': 'https://www.oddsportal.com',
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'same-site',
-            'Connection': 'keep-alive',
-        }
-        
-        # Adaugă cookies pentru a imita un browser real
-        cookies = {
-            'oddsportal': '1',
-            'oddsportal_session': '1',
-        }
-        
-        # ----------------------------------------------------
-        # ÎNCERCĂM ENDPOINT-URI ALTERNATIVE
-        # ----------------------------------------------------
-        
-        api_endpoints = [
-            # Endpoint-uri principale
-            f"https://fb.oddsportal.com/feed/match/{match_id}-1-2.dat?={int(time.time())}",
-            f"https://www.oddsportal.com/feed/match/{match_id}-1-2.dat?={int(time.time())}",
-            
-            # Endpoint-uri alternative
-            f"https://fb.oddsportal.com/feed/match/1-1-{match_id}.dat",
-            f"https://www.oddsportal.com/ajax/match/{match_id}/",
-            
-            # Endpoint-uri cu parametri diferiți
-            f"https://fb.oddsportal.com/feed/match/{match_id}.dat",
-            f"https://www.oddsportal.com/api/v1/matches/{match_id}",
-            
-            # Endpoint pentru basketball specific
-            f"https://fb.oddsportal.com/feed/basketball/usa/nba/{match_id}.dat",
-        ]
-        
-        api_data = None
-        
-        for endpoint in api_endpoints:
-            try:
-                print(f"Încerc endpoint: {endpoint}")
-                
-                # Adaugă timestamp pentru a evita cache-ul
-                if '?' not in endpoint:
-                    endpoint += f"?_={int(time.time())}"
-                
-                response = requests.get(endpoint, headers=headers, cookies=cookies, timeout=15)
-                
-                print(f"Status: {response.status_code}")
-                print(f"Content-Length: {len(response.text)}")
-                
-                if response.status_code == 200:
-                    content = response.text
-                    print(f"✅ SUCCES la {endpoint} - Lungime: {len(content)}")
-                    
-                    if content.strip() and len(content) > 10:  # Verifică că nu e mesaj de eroare
-                        api_data = content
-                        results['API_Endpoint'] = endpoint
-                        results['API_Response_Length'] = len(content)
-                        results['API_Response_Sample'] = content[:500] if len(content) > 500 else content
-                        
-                        # Salvează răspunsul complet
-                        with open(f'/tmp/oddsportal_response_{match_id}.txt', 'w') as f:
-                            f.write(content)
-                        print(f"✓ Răspuns salvat: /tmp/oddsportal_response_{match_id}.txt")
-                        break
-                    else:
-                        print("✗ Răspuns prea scurt sau gol")
-                else:
-                    print(f"✗ Status code: {response.status_code}")
-                    
-            except Exception as e:
-                print(f"✗ Eroare: {e}")
-                continue
-        
-        if not api_data:
-            # Încercă o abordare diferită - să folosim Selenium pentru a extrage datele din network tab
-            results['Error'] = "Toate endpoint-urile au returnat eroare. Încerc abordare Selenium..."
-            return scrape_via_selenium_network(ou_link, ah_link, match_id)
-        
-        # ----------------------------------------------------
-        # PROCESSĂM DATELE API
-        # ----------------------------------------------------
-        
-        # Încercă să parseze ca JSON
-        try:
-            # Curăță potențialul padding JSONP
-            clean_data = api_data.strip()
-            
-            # Îndepărtează prefixele JSONP comune
-            jsonp_prefixes = ['window.ODSData=', 'ODSData=', 'jsonCallback(', 'callback(']
-            for prefix in jsonp_prefixes:
-                if clean_data.startswith(prefix):
-                    clean_data = clean_data[len(prefix):]
-                    # Îndepărtează sufixul )
-                    if clean_data.endswith(');'):
-                        clean_data = clean_data[:-2]
-                    elif clean_data.endswith(');'):
-                        clean_data = clean_data[:-1]
-                    break
-            
-            json_data = json.loads(clean_data)
-            results['API_Data_Type'] = 'JSON'
-            print("✅ Date JSON parsate cu succes")
-            
-            # Extrage cotele din JSON
-            ou_lines = extract_data_from_json(json_data, "over-under")
-            ah_lines = extract_data_from_json(json_data, "asian-handicap")
-            
-            results['Over_Under_Lines'] = ou_lines
-            results['Handicap_Lines'] = ah_lines
-            
-        except json.JSONDecodeError as e:
-            print(f"⚠️ Nu e JSON, încerc parsare text: {e}")
-            results['API_Data_Type'] = 'RAW_TEXT'
-            
-            # Verifică dacă conține date utile
-            if 'Betano' in api_data or 'betano' in api_data.lower():
-                print("✓ Betano găsit în răspunsul text")
-                ou_lines = extract_from_text_simple(api_data, "Over/Under")
-                ah_lines = extract_from_text_simple(api_data, "Asian Handicap")
-                
-                results['Over_Under_Lines'] = ou_lines
-                results['Handicap_Lines'] = ah_lines
-            else:
-                print("✗ Betano nu este în răspuns")
-                results['Over_Under_Lines'] = []
-                results['Handicap_Lines'] = []
-        
-    except Exception as e:
-        results['Error'] = f"Eroare API: {str(e)}"
-    
-    return results
-
-def extract_data_from_json(json_data, market_type):
-    """Extrage date din JSON"""
-    lines = []
-    print(f"Extragere {market_type} din JSON...")
-    
-    # Funcție recursivă pentru a explora JSON-ul
-    def explore_json(obj, path=""):
-        findings = []
-        
-        if isinstance(obj, dict):
-            # Verifică chei relevante
-            for key, value in obj.items():
-                key_str = str(key).lower()
-                
-                # Verifică dacă este bookmaker Betano
-                if 'betano' in key_str:
-                    print(f"✅ Betano găsit la: {path}.{key}")
-                    findings.append({'type': 'betano', 'path': f"{path}.{key}", 'data': value})
-                
-                # Verifică pentru cote
-                elif any(odds_key in key_str for odds_key in ['odds', 'price', 'value', 'over', 'under']):
-                    if isinstance(value, (int, float)) or (isinstance(value, str) and '.' in value):
-                        print(f"📊 Cotă găsită: {path}.{key} = {value}")
-                        findings.append({'type': 'odds', 'path': f"{path}.{key}", 'value': value})
-                
-                # Explorează recursiv
-                if isinstance(value, (dict, list)):
-                    findings.extend(explore_json(value, f"{path}.{key}"))
-                    
-        elif isinstance(obj, list):
-            for i, item in enumerate(obj):
-                findings.extend(explore_json(item, f"{path}[{i}]"))
-        
-        return findings
-    
-    # Execută explorarea
-    findings = explore_json(json_data)
-    
-    # Procesează findings
-    betano_data = [f for f in findings if f['type'] == 'betano']
-    odds_data = [f for f in findings if f['type'] == 'odds']
-    
-    print(f"Betano findings: {len(betano_data)}")
-    print(f"Odds findings: {len(odds_data)}")
-    
-    # Creează linii bazate pe findings
-    if betano_data and odds_data:
-        # Grupează cotele (presupunem primele 2 cote pentru Betano)
-        if len(odds_data) >= 2:
-            lines.append({
-                'Line': 'Extras din JSON',
-                f'{"Over" if market_type == "over-under" else "Home"}_Close': odds_data[0]['value'],
-                f'{"Over" if market_type == "over-under" else "Home"}_Open': 'N/A',
-                f'{"Under" if market_type == "over-under" else "Away"}_Close': odds_data[1]['value'],
-                f'{"Under" if market_type == "over-under" else "Away"}_Open': 'N/A',
-                'Bookmaker': 'Betano.ro',
-                'Source': 'JSON_API'
-            })
-    
-    return lines
-
-def extract_from_text_simple(text_data, market_type):
-    """Extrage date simple din text"""
-    lines = []
-    
-    # Caută pattern-uri simple
-    patterns = [
-        r'(\d+\.\d+).*?Betano.*?(\d+\.\d+)',
-        r'Betano.*?(\d+\.\d+).*?(\d+\.\d+)',
-    ]
-    
-    for pattern in patterns:
-        matches = re.findall(pattern, text_data, re.IGNORECASE)
-        if matches:
-            for match in matches:
-                if len(match) >= 2:
-                    lines.append({
-                        'Line': 'Extras din text',
-                        f'{"Over" if market_type == "Over/Under" else "Home"}_Close': match[0],
-                        f'{"Over" if market_type == "Over/Under" else "Home"}_Open': 'N/A',
-                        f'{"Under" if market_type == "Over/Under" else "Away"}_Close': match[1],
-                        f'{"Under" if market_type == "Over/Under" else "Away"}_Open': 'N/A',
-                        'Bookmaker': 'Betano.ro',
-                        'Source': 'Text_API'
-                    })
-            break
-    
-    return lines
-
-def scrape_via_selenium_network(ou_link, ah_link, match_id):
-    """Folosește Selenium pentru a captura request-urile de network"""
     from selenium import webdriver
     from selenium.webdriver.chrome.service import Service
     from selenium.webdriver.chrome.options import Options
     import os
+    import time
     
-    results = {'Match': 'Scraping via Selenium Network'}
+    results = {'Match': 'Scraping via URL-uri directe'}
     
-    # Această funcție ar necesita setup de Chrome cu logging pentru network
-    # Este mai complexă și o putem implementa dacă API-ul direct nu funcționează
+    chrome_options = Options()
+    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--window-size=1920,1080")
     
-    results['Error'] = "Abordarea Selenium Network necesită setup avansat"
+    chrome_options.binary_location = os.environ.get("GOOGLE_CHROME_BIN", "/usr/bin/chromium")
+    chromedriver_path = os.environ.get("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
+    
+    try:
+        service = Service(chromedriver_path)
+        driver = webdriver.Chrome(service=service, options=chrome_options)
+        
+        # ----------------------------------------------------
+        # OVER/UNDER - EXTRAGEM LINIILE ȘI CONSTRUIM URL-URI
+        # ----------------------------------------------------
+        print("=== OVER/UNDER - URL-URI DIRECTE ===")
+        driver.get(ou_link)
+        time.sleep(5)
+        
+        # 1. CLICK PE TAB OVER/UNDER (doar pentru a vedea liniile)
+        try:
+            ou_tab = driver.find_element(By.XPATH, "//div[text()='Over/Under']")
+            driver.execute_script("arguments[0].click();", ou_tab)
+            print("✓ Click pe tab Over/Under")
+            time.sleep(3)
+        except:
+            print("✗ Tab Over/Under nu a putut fi apăsat")
+        
+        # 2. EXTRAGE TOATE VALORILE LINIILOR
+        ou_lines = []
+        line_containers = driver.find_elements(By.XPATH, "//div[contains(@class, 'min-md:px-[10px]')]/div")
+        print(f"Containere linii găsite: {len(line_containers)}")
+        
+        line_values = []
+        for container in line_containers[:10]:  # Primele 10 linii
+            try:
+                text_elements = container.find_elements(By.XPATH, ".//div[contains(@class, 'font-bold text-[#2F2F2F]')]")
+                if not text_elements:
+                    continue
+                    
+                line_text = text_elements[0].text
+                if "Over/Under" in line_text:
+                    # Extrage valoarea liniei (ex: +218.5)
+                    line_match = re.search(r'Over/Under\s*([+-]?\d+\.?\d*)', line_text)
+                    if line_match:
+                        line_value = line_match.group(1)
+                        line_values.append(line_value)
+                        print(f"✓ Linie găsită: {line_value}")
+            except:
+                continue
+        
+        print(f"Total valori linii extrase: {len(line_values)}")
+        
+        # 3. CONSTRUIEȘTE URL-URI DIRECTE PENTRU FIECARE LINIE
+        base_url = ou_link.split('#')[0]  # https://www.oddsportal.com/basketball/usa/nba/cleveland-cavaliers-toronto-raptors-xYgsQpLr/
+        
+        for i, line_value in enumerate(line_values[:3]):  # Testează primele 3 linii
+            try:
+                # Construiește URL-ul direct pentru linie
+                # Format: #over-under;1;218.50;0
+                direct_url = f"{base_url}#over-under;1;{line_value.replace('+', '').replace('-', '')};0"
+                print(f"URL direct linie {i+1}: {direct_url}")
+                
+                # Accesează URL-ul direct
+                driver.get(direct_url)
+                time.sleep(5)
+                
+                # VERIFICĂ DACA BETANO APARE
+                betano_elements = driver.find_elements(By.XPATH, "//*[contains(text(), 'Betano.ro')]")
+                print(f"  Elemente Betano după URL direct: {len(betano_elements)}")
+                
+                if betano_elements:
+                    print(f"  ✅ BETANO GĂSIT la linia {line_value}!")
+                    
+                    # EXTRAge COTELE
+                    odds_elements = driver.find_elements(By.XPATH, "//p[@class='odds-text']")
+                    if len(odds_elements) >= 2:
+                        over_close = odds_elements[0].text
+                        under_close = odds_elements[1].text
+                        
+                        print(f"  ✅ Cote găsite: Over={over_close}, Under={under_close}")
+                        
+                        ou_lines.append({
+                            'Line': line_value,
+                            'Over_Close': over_close,
+                            'Over_Open': 'N/A',
+                            'Under_Close': under_close,
+                            'Under_Open': 'N/A',
+                            'Bookmaker': 'Betano.ro',
+                            'Direct_URL': direct_url
+                        })
+                
+            except Exception as e:
+                print(f"✗ Eroare la linia {line_value}: {e}")
+        
+        results['Over_Under_Lines'] = ou_lines
+        
+        # ----------------------------------------------------
+        # ASIAN HANDICAP - ACEAȘI LOGICĂ
+        # ----------------------------------------------------
+        print("=== ASIAN HANDICAP - URL-URI DIRECTE ===")
+        driver.get(ah_link)
+        time.sleep(5)
+        
+        try:
+            ah_tab = driver.find_element(By.XPATH, "//div[text()='Asian Handicap']")
+            driver.execute_script("arguments[0].click();", ah_tab)
+            print("✓ Click pe tab Asian Handicap")
+            time.sleep(3)
+        except:
+            print("✗ Tab Asian Handicap nu a putut fi apăsat")
+        
+        ah_lines = []
+        ah_line_containers = driver.find_elements(By.XPATH, "//div[contains(@class, 'min-md:px-[10px]')]/div")
+        
+        ah_line_values = []
+        for container in ah_line_containers[:10]:
+            try:
+                text_elements = container.find_elements(By.XPATH, ".//div[contains(@class, 'font-bold text-[#2F2F2F]')]")
+                if not text_elements:
+                    continue
+                    
+                line_text = text_elements[0].text
+                if "Asian Handicap" in line_text:
+                    line_match = re.search(r'Asian Handicap\s*([+-]?\d+\.?\d*)', line_text)
+                    if line_match:
+                        line_value = line_match.group(1)
+                        ah_line_values.append(line_value)
+                        print(f"✓ Linie AH găsită: {line_value}")
+            except:
+                continue
+        
+        # Construiește URL-uri pentru AH
+        ah_base_url = ah_link.split('#')[0]
+        
+        for i, line_value in enumerate(ah_line_values[:3]):
+            try:
+                # Format pentru AH: #ah;1;-5.50;0
+                direct_ah_url = f"{ah_base_url}#ah;1;{line_value.replace('+', '').replace('-', '')};0"
+                print(f"URL direct AH linie {i+1}: {direct_ah_url}")
+                
+                driver.get(direct_ah_url)
+                time.sleep(5)
+                
+                betano_elements = driver.find_elements(By.XPATH, "//*[contains(text(), 'Betano.ro')]")
+                print(f"  Elemente Betano AH: {len(betano_elements)}")
+                
+                if betano_elements:
+                    print(f"  ✅ BETANO GĂSIT la AH linia {line_value}!")
+                    
+                    odds_elements = driver.find_elements(By.XPATH, "//p[@class='odds-text']")
+                    if len(odds_elements) >= 2:
+                        home_close = odds_elements[0].text
+                        away_close = odds_elements[1].text
+                        
+                        print(f"  ✅ Cote AH găsite: Home={home_close}, Away={away_close}")
+                        
+                        ah_lines.append({
+                            'Line': line_value,
+                            'Home_Close': home_close,
+                            'Home_Open': 'N/A',
+                            'Away_Close': away_close,
+                            'Away_Open': 'N/A',
+                            'Bookmaker': 'Betano.ro',
+                            'Direct_URL': direct_ah_url
+                        })
+                
+            except Exception as e:
+                print(f"✗ Eroare la AH linia {line_value}: {e}")
+        
+        results['Handicap_Lines'] = ah_lines
+        
+        results['Debug'] = {
+            'ou_lines_found': len(ou_lines),
+            'ah_lines_found': len(ah_lines),
+            'ou_line_values': line_values[:5],
+            'ah_line_values': ah_line_values[:5]
+        }
+        
+    except Exception as e:
+        results['Error'] = f"Eroare URL-uri directe: {str(e)}"
+    finally:
+        if 'driver' in locals():
+            driver.quit()
+    
     return results
 
-# FOLOSEȘTE ACEST COD!
+# FOLOSEȘTE ACEST COD! 
 def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
-    return scrape_via_api_fixed_v2(ou_link, ah_link)
+    return scrape_via_direct_urls(ou_link, ah_link)
