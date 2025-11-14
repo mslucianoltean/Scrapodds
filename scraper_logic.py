@@ -1,4 +1,4 @@
-# scraper_logic.py (VERSIUNEA FINALĂ CU LOGICA DE CLICK PE RÂND)
+# scraper_logic.py (VERSIUNEA DE DEBUG - CLICK PE TOATE RÂNDURILE)
 
 import os
 import time
@@ -16,12 +16,12 @@ from selenium.webdriver.support import expected_conditions as EC
 # ------------------------------------------------------------------------------
 # ⚙️ CONFIGURARE
 # ------------------------------------------------------------------------------
-TARGET_BOOKMAKER = "Betano" # Filtrarea activă
+TARGET_BOOKMAKER = "Betano" # Rămâne doar pentru referință
 TYPE_ODDS = 'CLOSING' 
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
-# 🛠️ FUNCȚII AJUTĂTOARE SELENIUM 
+# 🛠️ FUNCȚII AJUTĂTOARE SELENIUM (Rămân neschimbate)
 # ------------------------------------------------------------------------------
 
 def find_element(driver, by_method, locator):
@@ -40,7 +40,6 @@ def ffi2(driver, xpath):
     """Dă click pe elementul de la xpath dacă există."""
     element = find_element(driver, By.XPATH, xpath)
     if element:
-        # Folosim JavaScript pentru a forța click-ul pe rând
         driver.execute_script("arguments[0].click();", element)
         return True
     return False
@@ -52,7 +51,6 @@ def get_bookmaker_name_from_div(driver, row_xpath):
     return element.text.strip() if element else None
 
 def get_opening_odd(driver, xpath):
-    """DEZACTIVAT: Funcția de hover care cauzează instabilitate."""
     return 'DEZACTIVAT (instabil)'
 
 def fffi(driver, xpath):
@@ -60,7 +58,7 @@ def fffi(driver, xpath):
     return ffi(driver, xpath) 
 
 # ------------------------------------------------------------------------------
-# 🚀 FUNCȚIA PRINCIPALĂ DE SCRAPING (CU CLICK ACTIVAT)
+# 🚀 FUNCȚIA PRINCIPALĂ DE SCRAPING (DEBUG - CLICK PE TOATE RÂNDURILE)
 # ------------------------------------------------------------------------------
 
 def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
@@ -123,8 +121,8 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         ou_lines = []
         time.sleep(3) 
         
-        # Extrage liniile OU 
-        for j in range(1, 101):
+        # Extrage liniile OU (dăm click pe fiecare rând)
+        for j in range(1, 10): # Limităm la primele 9 rânduri pentru viteză
             row_container_xpath = f'{base_rows_xpath}/div[{j}]'
             
             row_element = find_element(driver, By.XPATH, row_container_xpath)
@@ -132,42 +130,32 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
             
             bm_name = get_bookmaker_name_from_div(driver, row_container_xpath)
             
-            # ATENȚIE: AICI INTRĂ FILTRAREA ȘI CLICK-UL
-            if bm_name and TARGET_BOOKMAKER in bm_name:
+            # ATENȚIE: DĂM CLICK PE ORICE RÂND PENTRU A VEDEA CE SE ÎNTÂMPLĂ
+            if bm_name: 
                 
-                # NOU: DĂM CLICK PE RÂND PENTRU A VEDEA COTELE DE ÎNCHIDERE
                 ffi2(driver, row_container_xpath) 
                 time.sleep(1) # Așteptăm ca datele să fie injectate
                 
-                # Presupunem că după click cotele se mută în div[2] și div[3]
-                home_odd_xpath = f'{row_container_xpath}/div[2]' # Noua poziție
-                away_odd_xpath = f'{row_container_xpath}/div[3]' # Noua poziție
+                # Presupunem că cotele se mută în div[2] și div[3] după click
+                home_odd_xpath = f'{row_container_xpath}/div[2]' 
+                away_odd_xpath = f'{row_container_xpath}/div[3]' 
                 
                 close_home = fffi(driver, home_odd_xpath)
                 close_away = fffi(driver, away_odd_xpath)
                 
-                if close_home and close_away:
-                    line_raw_text = close_home 
-                    line_match = re.search(r'[+-]?\d+\.?\d*', line_raw_text)
-                    line = line_match.group(0) if line_match else 'N/A'
-                    
-                    data = {
-                        'Line': line,
-                        'Home_Over_Close': close_home,
-                        'Home_Over_Open': 'DEZACTIVAT (instabil)',
-                        'Away_Under_Close': close_away,
-                        'Away_Under_Open': 'DEZACTIVAT (instabil)',
-                        'Bookmaker': bm_name
-                    }
-                    if data['Line'] != 'N/A':
-                        ou_lines.append(data)
-                        # Odată ce am găsit Betano, putem ieși din buclă (presupunând că avem nevoie de prima linie)
-                        break 
+                # În loc să filtrăm, colectăm toate datele
+                data = {
+                    'Line': 'N/A', # Linia nu mai este esențială acum
+                    'Home_Over_Close': close_home if close_home else 'N/A',
+                    'Away_Under_Close': close_away if close_away else 'N/A',
+                    'Bookmaker': bm_name
+                }
+                ou_lines.append(data)
         
         results['Over_Under_Lines'] = ou_lines
 
         # ----------------------------------------------------
-        # ETAPA 2: Extrage cotele Handicap
+        # ETAPA 2: Extrage cotele Handicap (Aceeași logică)
         # ----------------------------------------------------
         driver.get(ah_link)
         time.sleep(2)
@@ -193,8 +181,8 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         handicap_lines = []
         time.sleep(3) 
 
-        # Extrage liniile AH 
-        for j in range(1, 101):
+        # Extrage liniile AH (dăm click pe fiecare rând)
+        for j in range(1, 10): # Limităm la primele 9 rânduri pentru viteză
             row_container_xpath = f'{base_rows_xpath}/div[{j}]'
             
             row_element = find_element(driver, By.XPATH, row_container_xpath)
@@ -202,35 +190,24 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
 
             bm_name = get_bookmaker_name_from_div(driver, row_container_xpath)
             
-            if bm_name and TARGET_BOOKMAKER in bm_name:
+            if bm_name:
                 
-                # NOU: DĂM CLICK PE RÂND
                 ffi2(driver, row_container_xpath) 
                 time.sleep(1) # Așteptăm ca datele să fie injectate
                 
-                # Presupunem că după click cotele se mută în div[2] și div[3]
                 home_odd_xpath = f'{row_container_xpath}/div[2]' 
                 away_odd_xpath = f'{row_container_xpath}/div[3]' 
                 
                 close_home = fffi(driver, home_odd_xpath)
                 close_away = fffi(driver, away_odd_xpath)
                 
-                if close_home and close_away:
-                    line_raw_text = close_home 
-                    line_match = re.search(r'[+-]?\d+\.?\d*', line_raw_text)
-                    line = line_match.group(0) if line_match else 'N/A'
-                    
-                    data = {
-                        'Line': line,
-                        'Home_Over_Close': close_home,
-                        'Home_Over_Open': 'DEZACTIVAT (instabil)',
-                        'Away_Under_Close': close_away,
-                        'Away_Under_Open': 'DEZACTIVAT (instabil)',
-                        'Bookmaker': bm_name
-                    }
-                    if data['Line'] != 'N/A':
-                        handicap_lines.append(data)
-                        break
+                data = {
+                    'Line': 'N/A',
+                    'Home_Over_Close': close_home if close_home else 'N/A',
+                    'Away_Under_Close': close_away if close_away else 'N/A',
+                    'Bookmaker': bm_name
+                }
+                handicap_lines.append(data)
 
         results['Handicap_Lines'] = handicap_lines
             
