@@ -1,4 +1,4 @@
-def scrape_with_exact_xpath(ou_link, ah_link):
+def scrape_with_arrow_click(ou_link, ah_link):
     from selenium import webdriver
     from selenium.webdriver.chrome.service import Service
     from selenium.webdriver.chrome.options import Options
@@ -9,7 +9,7 @@ def scrape_with_exact_xpath(ou_link, ah_link):
     import time
     import re
     
-    results = {'Match': 'Scraping cu XPATH exact'}
+    results = {'Match': 'Scraping cu click pe săgeată'}
     driver = None
     
     chrome_options = Options()
@@ -25,7 +25,7 @@ def scrape_with_exact_xpath(ou_link, ah_link):
         wait = WebDriverWait(driver, 10)
         
         # ----------------------------------------------------
-        # OVER/UNDER - CU XPATH EXACT
+        # OVER/UNDER - CU CLICK PE SĂGEATĂ
         # ----------------------------------------------------
         print("=== START OVER/UNDER ===")
         driver.get(ou_link)
@@ -37,28 +37,58 @@ def scrape_with_exact_xpath(ou_link, ah_link):
         print("✓ Click pe tab Over/Under")
         time.sleep(3)
         
-        # 2. GĂSEȘTE TOATE LINIILE CU STRUCTURA SIMILARĂ
+        # 2. GĂSEȘTE TOATE SĂGEȚILE PENTRU OVER/UNDER
         ou_lines = []
         
-        # XPATH-ul de bază (fără indexul final)
-        base_xpath = "/html/body/div[1]/div[1]/div[1]/div/main/div[4]/div[2]/div[2]/div[2]"
+        # Selector pentru săgeți (din HTML-ul tău)
+        arrow_selectors = [
+            "//div[contains(@class, 'bg-provider-arrow')]",
+            "//div[@class='bg-provider-arrow h-4 w-4 bg-center bg-no-repeat rotate-180']"
+        ]
         
-        # Testează mai multe indexuri (de la 1 la 20)
-        for i in range(1, 21):
+        arrow_elements = []
+        for selector in arrow_selectors:
             try:
-                line_xpath = f"{base_xpath}/div[{i}]/div/div[1]/div"
-                line_element = driver.find_element(By.XPATH, line_xpath)
-                line_text = line_element.text
+                elements = driver.find_elements(By.XPATH, selector)
+                if elements:
+                    print(f"✓ Găsite {len(elements)} săgeți cu selector: {selector}")
+                    arrow_elements.extend(elements)
+                    break
+            except:
+                continue
+        
+        if not arrow_elements:
+            print("✗ Nicio săgeată găsită")
+            results['Error'] = "Nicio săgeată găsită"
+            return results
+        
+        print(f"Total săgeți găsite: {len(arrow_elements)}")
+        
+        # 3. CLICK PE FIECARE SĂGEATĂ ȘI CAUTĂ BETANO
+        for i, arrow_element in enumerate(arrow_elements[:10]):  # Primele 10 săgeți
+            try:
+                print(f"Încerc săgeata {i+1}")
+                
+                # GĂSEȘTE PĂRINTELE SĂGEȚII (linia completă)
+                line_container = arrow_element.find_element(By.XPATH, "./ancestor::div[contains(@class, 'flex')][1]")
+                line_text = line_container.text
                 
                 if "Over/Under" in line_text:
-                    print(f"✓ Linie {i} găsită: {line_text}")
+                    print(f"✓ Linie OU găsită: {line_text[:50]}...")
                     
-                    # CLICK PE LINIE
-                    driver.execute_script("arguments[0].click();", line_element)
-                    print("✓ Click pe linie")
+                    # EXTRAGE VALOAREA LINIEI
+                    line_match = re.search(r'Over/Under\s*([+-]?\d+\.?\d*)', line_text)
+                    if not line_match:
+                        continue
+                    
+                    line_value = line_match.group(1)
+                    
+                    # CLICK PE SĂGEATĂ
+                    driver.execute_script("arguments[0].click();", arrow_element)
+                    print("✓ Click pe săgeată")
                     time.sleep(3)
                     
-                    # VERIFICĂ DACĂ S-AU DESCHIS BOOKMAKERII
+                    # VERIFICĂ DACA S-AU DESCHIS BOOKMAKERII
                     try:
                         betano_element = wait.until(
                             EC.presence_of_element_located((By.XPATH, "//p[text()='Betano.ro']"))
@@ -73,11 +103,7 @@ def scrape_with_exact_xpath(ou_link, ah_link):
                             over_close = odds_elements[0].text
                             under_close = odds_elements[1].text
                             
-                            # Extrage linia exactă
-                            line_match = re.search(r'Over/Under\s*([+-]?\d+\.?\d*)', line_text)
-                            line_value = line_match.group(1) if line_match else line_text
-                            
-                            # Extrage opening odds
+                            # EXTRAge OPENING ODDS
                             odds_containers = betano_row.find_elements(By.XPATH, ".//div[@data-testid='odd-container']")
                             over_open = get_opening_odds(driver, odds_containers[0]) if odds_containers else 'N/A'
                             under_open = get_opening_odds(driver, odds_containers[1]) if len(odds_containers) > 1 else 'N/A'
@@ -92,17 +118,23 @@ def scrape_with_exact_xpath(ou_link, ah_link):
                             })
                             
                             print(f"🎉 LINIE COMPLETĂ: {line_value} | Over: {over_close}/{over_open} | Under: {under_close}/{under_open}")
+                            
+                            # ÎNCHIDE LINIA
+                            driver.execute_script("arguments[0].click();", arrow_element)
+                            time.sleep(1)
                             break
-                        
+                        else:
+                            print("✗ Nu s-au găsit suficiente cote")
+                            
                     except Exception as e:
-                        print(f"✗ Betano nu găsit pentru linia {i}: {e}")
+                        print(f"✗ Betano nu găsit după click pe săgeată {i+1}: {e}")
                     
                     # ÎNCHIDE LINIA
-                    driver.execute_script("arguments[0].click();", line_element)
+                    driver.execute_script("arguments[0].click();", arrow_element)
                     time.sleep(1)
                     
             except Exception as e:
-                # Linia nu există sau nu e clickable
+                print(f"✗ Eroare la săgeata {i+1}: {e}")
                 continue
         
         results['Over_Under_Lines'] = ou_lines
@@ -121,18 +153,36 @@ def scrape_with_exact_xpath(ou_link, ah_link):
         
         ah_lines = []
         
-        # Testează pentru Asian Handicap
-        for i in range(1, 21):
+        # GĂSEȘTE SĂGEȚILE PENTRU ASIAN HANDICAP
+        ah_arrow_elements = []
+        for selector in arrow_selectors:
             try:
-                line_xpath = f"{base_xpath}/div[{i}]/div/div[1]/div"
-                line_element = driver.find_element(By.XPATH, line_xpath)
-                line_text = line_element.text
+                elements = driver.find_elements(By.XPATH, selector)
+                if elements:
+                    print(f"✓ Găsite {len(elements)} săgeți AH cu selector: {selector}")
+                    ah_arrow_elements.extend(elements)
+                    break
+            except:
+                continue
+        
+        for i, arrow_element in enumerate(ah_arrow_elements[:10]):
+            try:
+                print(f"Încerc săgeata AH {i+1}")
+                
+                line_container = arrow_element.find_element(By.XPATH, "./ancestor::div[contains(@class, 'flex')][1]")
+                line_text = line_container.text
                 
                 if "Asian Handicap" in line_text:
-                    print(f"✓ Linie AH {i} găsită: {line_text}")
+                    print(f"✓ Linie AH găsită: {line_text[:50]}...")
                     
-                    driver.execute_script("arguments[0].click();", line_element)
-                    print("✓ Click pe linie AH")
+                    line_match = re.search(r'Asian Handicap\s*([+-]?\d+\.?\d*)', line_text)
+                    if not line_match:
+                        continue
+                    
+                    line_value = line_match.group(1)
+                    
+                    driver.execute_script("arguments[0].click();", arrow_element)
+                    print("✓ Click pe săgeată AH")
                     time.sleep(3)
                     
                     try:
@@ -148,9 +198,6 @@ def scrape_with_exact_xpath(ou_link, ah_link):
                             home_close = odds_elements[0].text
                             away_close = odds_elements[1].text
                             
-                            line_match = re.search(r'Asian Handicap\s*([+-]?\d+\.?\d*)', line_text)
-                            line_value = line_match.group(1) if line_match else line_text
-                            
                             odds_containers = betano_row.find_elements(By.XPATH, ".//div[@data-testid='odd-container']")
                             home_open = get_opening_odds(driver, odds_containers[0]) if odds_containers else 'N/A'
                             away_open = get_opening_odds(driver, odds_containers[1]) if len(odds_containers) > 1 else 'N/A'
@@ -165,15 +212,19 @@ def scrape_with_exact_xpath(ou_link, ah_link):
                             })
                             
                             print(f"🎉 LINIE AH COMPLETĂ: {line_value} | Home: {home_close}/{home_open} | Away: {away_close}/{away_open}")
+                            
+                            driver.execute_script("arguments[0].click();", arrow_element)
+                            time.sleep(1)
                             break
-                        
+                            
                     except Exception as e:
-                        print(f"✗ Betano nu găsit pentru AH linia {i}: {e}")
+                        print(f"✗ Betano nu găsit pentru AH săgeata {i+1}: {e}")
                     
-                    driver.execute_script("arguments[0].click();", line_element)
+                    driver.execute_script("arguments[0].click();", arrow_element)
                     time.sleep(1)
                     
             except Exception as e:
+                print(f"✗ Eroare la săgeata AH {i+1}: {e}")
                 continue
         
         results['Handicap_Lines'] = ah_lines
@@ -214,4 +265,4 @@ def get_opening_odds(driver, odds_container):
 
 # FOLOSEȘTE ACEST COD!
 def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
-    return scrape_with_exact_xpath(ou_link, ah_link)
+    return scrape_with_arrow_click(ou_link, ah_link)
