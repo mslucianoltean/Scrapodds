@@ -1,4 +1,4 @@
-# scraper_logic.py (VERSIUNEA FINALĂ CU CĂUTARE PE LINK BETANO)
+# scraper_logic.py (VERSIUNEA 6.0 - ÎNCĂRCARE STABILITĂ ȘI CĂUTARE ÎMBUNĂTĂȚITĂ)
 
 import os
 import time
@@ -39,7 +39,6 @@ def ffi2(driver, xpath):
     """Dă click pe elementul de la xpath dacă există (folosind JS)."""
     element = find_element(driver, By.XPATH, xpath)
     if element:
-        # Click pe elementul div părinte al cotei, care declanșează pop-up-ul
         driver.execute_script("arguments[0].click();", element)
         return True
     return False
@@ -47,8 +46,6 @@ def ffi2(driver, xpath):
 def get_opening_odd_from_click(driver, element_to_click_xpath):
     """Simulează click pe cota de închidere, așteaptă popup-ul și extrage cota de deschidere."""
     
-    # Click pe div-ul părinte care conține cota (e.g., div[3])
-    # Tăiem '/div/p' pentru a obține XPath-ul div-ului care trebuie apăsat
     div_to_click_xpath = '/'.join(element_to_click_xpath.split('/')[:-2])
     
     if not ffi2(driver, div_to_click_xpath):
@@ -57,7 +54,6 @@ def get_opening_odd_from_click(driver, element_to_click_xpath):
     try:
         time.sleep(0.5) 
         
-        # XPath-ul pentru cota de deschidere din pop-up: [ID tooltip] -> [al doilea div] -> [p.odds-text]
         popup_open_odd_xpath = '//*[@id="tooltip_v"]//div[2]/p[@class="odds-text"]'
         
         wait = WebDriverWait(driver, 5) 
@@ -65,7 +61,6 @@ def get_opening_odd_from_click(driver, element_to_click_xpath):
         
         opening_odd_text = opening_odd_element.text.strip()
         
-        # Închide Popup-ul: Dăm click pe body
         ffi2(driver, '//body') 
         time.sleep(0.2) 
         
@@ -112,8 +107,8 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
     try:
         wait = WebDriverWait(driver, 30)
         
-        # CONTAINER PRINCIPAL (Corectat)
-        base_rows_xpath = '/html/body/div[1]/div[1]/div[1]/div/main/div[4]/div[2]/div[2]'
+        # NOU CONTAINER PRINCIPAL DE AȘTEPTAT (Mai sus în ierarhie)
+        main_container_xpath = '/html/body/div[1]/div[1]/div[1]/div/main/div[4]'
         
         # Căi relative (din interiorul rândului Betano) - vizează direct <p>
         OU_HOME_ODD_REL_PATH = '/div[3]/div/div/p' 
@@ -143,75 +138,81 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         # ----------------------------
 
         try:
-            wait.until(EC.visibility_of_element_located((By.XPATH, base_rows_xpath)))
+            # Așteptăm elementul părinte de nivel înalt
+            wait.until(EC.visibility_of_element_located((By.XPATH, main_container_xpath)))
         except:
-            results['Error'] = f"Eroare la încărcarea paginii Over/Under (Containerul de cote '{base_rows_xpath}' nu a fost găsit în 30s)."
+            results['Error'] = f"Eroare la încărcarea paginii Over/Under (Containerul principal '{main_container_xpath}' nu a fost găsit în 30s)."
             driver.quit()
             return dict(results)
         
         ou_lines = []
         time.sleep(3) 
         
-        # Iterăm până găsim o linie Betano funcțională
-        for j in range(1, 101): 
-            line_row_xpath = f'{base_rows_xpath}/div[{j}]' # Linia individuală
-            line_row_element = find_element(driver, By.XPATH, line_row_xpath)
+        # Căutăm toate rândurile de cote din interiorul containerului principal (Căutare mai flexibilă)
+        all_line_rows = driver.find_elements(By.XPATH, f"{main_container_xpath}//div[contains(@data-testid, 'table-main-row')]")
+        
+        # Iterăm prin rândurile găsite
+        for line_row_element in all_line_rows:
             
-            if not line_row_element: break
+            # Folosim XPath-ul absolut al elementului rând pentru click
+            line_row_xpath = driver.execute_script("return arguments[0].tagName + (arguments[0].id ? '#' + arguments[0].id : '') + (arguments[0].className ? '.' + arguments[0].className.split(' ').join('.') : '');", line_row_element)
             
             # ACȚIUNE 1: DĂM CLICK PE RÂNDUL LINIEI PENTRU A DESCHIDE BOOKMAKERII
-            if ffi2(driver, line_row_xpath): 
-                time.sleep(1) 
+            # Trebuie să folosim o cale robustă pentru click (aici folosim elementul direct)
+            driver.execute_script("arguments[0].click();", line_row_element)
+            time.sleep(1) 
 
-                try:
-                    # ACȚIUNE 2: Găsim rândul Betano pe baza Link-ului
-                    betano_row_xpath_full = f'{line_row_xpath}{BETANO_ROW_XPATH_TEMPLATE}'
-                    betano_row_element = driver.find_element(By.XPATH, betano_row_xpath_full)
-                    
-                    # Extragem numele (pentru afișare)
-                    bm_name_element = betano_row_element.find_element(By.XPATH, f'.//p[contains(text(), "Betano")]')
-                    bm_name = bm_name_element.text.strip() if bm_name_element else "Betano.ro"
-
-                    # Cotele de închidere XPath-uri complete
-                    home_odd_xpath = betano_row_xpath_full + OU_HOME_ODD_REL_PATH
-                    away_odd_xpath = betano_row_xpath_full + OU_AWAY_ODD_REL_PATH
-                    
-                    close_home = ffi(driver, home_odd_xpath) 
-                    close_away = ffi(driver, away_odd_xpath) 
-                    
-                    if close_home and close_away and close_home != 'N/A' and close_away != 'N/A':
-                        
-                        # ACȚIUNE 3: CLICK PE COTE PENTRU COTE DE DESCHIDERE
-                        open_home = get_opening_odd_from_click(driver, home_odd_xpath)
-                        time.sleep(0.5)
-                        open_away = get_opening_odd_from_click(driver, away_odd_xpath)
-                        
-                        # Extrage Linia din rândul părinte
-                        line_raw_text = ffi(driver, line_row_xpath + LINE_REL_PATH)
-                        line = line_raw_text.strip() if line_raw_text else 'N/A'
-                        
-                        data = {
-                            'Line': line,
-                            'Home_Over_Close': close_home,
-                            'Home_Over_Open': open_home,
-                            'Away_Under_Close': close_away,
-                            'Away_Under_Open': open_away,
-                            'Bookmaker': bm_name
-                        }
-                        if data['Line'] != 'N/A':
-                            ou_lines.append(data)
-                            
-                            ffi2(driver, line_row_xpath) 
-                            break 
-                            
-                except NoSuchElementException:
-                    # Rândul Betano nu a fost găsit în rândul liniei curente.
-                    pass 
+            try:
+                # ACȚIUNE 2: Găsim rândul Betano pe baza Link-ului, relativ la rândul liniei curente
+                betano_row_element = line_row_element.find_element(By.XPATH, f'.{BETANO_ROW_XPATH_TEMPLATE}')
                 
-                # Închide rândul liniei (click din nou pe el)
-                ffi2(driver, line_row_xpath) 
-                time.sleep(0.5) 
-        
+                # Extragem XPath-ul absolut al rândului Betano pentru a-l folosi la extracția cotelor
+                betano_row_xpath_full = driver.execute_script("var element = arguments[0]; var xpath = ''; while (element) { var tag = element.tagName; if (!tag) break; var parent = element.parentNode; var siblings = parent.children; var count = 0; var index = 0; for (var i = 0; i < siblings.length; i++) { var sibling = siblings[i]; if (sibling.tagName === tag) { count++; if (sibling === element) { index = count; } } } var tagName = tag.toLowerCase(); var xpathIndex = index > 1 ? '[' + index + ']' : ''; xpath = '/' + tagName + xpathIndex + xpath; element = parent; } return xpath.replace('html[1]/body[1]', '/html/body');", betano_row_element)
+
+                # Extragem numele (pentru afișare)
+                bm_name_element = betano_row_element.find_element(By.XPATH, f'.//p[contains(text(), "Betano")]')
+                bm_name = bm_name_element.text.strip() if bm_name_element else "Betano.ro"
+
+                # Cotele de închidere XPath-uri complete
+                home_odd_xpath = betano_row_xpath_full + OU_HOME_ODD_REL_PATH
+                away_odd_xpath = betano_row_xpath_full + OU_AWAY_ODD_REL_PATH
+                
+                close_home = ffi(driver, home_odd_xpath) 
+                close_away = ffi(driver, away_odd_xpath) 
+                
+                if close_home and close_away and close_home != 'N/A' and close_away != 'N/A':
+                    
+                    # ACȚIUNE 3: CLICK PE COTE PENTRU COTE DE DESCHIDERE
+                    open_home = get_opening_odd_from_click(driver, home_odd_xpath)
+                    time.sleep(0.5)
+                    open_away = get_opening_odd_from_click(driver, away_odd_xpath)
+                    
+                    # Extrage Linia (relativ la rândul liniei)
+                    line_raw_text = line_row_element.find_element(By.XPATH, f'.{LINE_REL_PATH}').text
+                    line = line_raw_text.strip() if line_raw_text else 'N/A'
+                    
+                    data = {
+                        'Line': line,
+                        'Home_Over_Close': close_home,
+                        'Home_Over_Open': open_home,
+                        'Away_Under_Close': close_away,
+                        'Away_Under_Open': open_away,
+                        'Bookmaker': bm_name
+                    }
+                    if data['Line'] != 'N/A':
+                        ou_lines.append(data)
+                        
+                        driver.execute_script("arguments[0].click();", line_row_element) # Închide rândul
+                        break 
+                        
+            except NoSuchElementException:
+                # Rândul Betano nu a fost găsit în rândul liniei curente.
+                pass 
+            
+            # Închide rândul liniei (click din nou pe el)
+            driver.execute_script("arguments[0].click();", line_row_element)
+            time.sleep(0.5) 
+    
         results['Over_Under_Lines'] = ou_lines
 
         # ----------------------------------------------------
@@ -221,76 +222,76 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         driver.get(ah_link)
         time.sleep(2)
         
-        # --- HANDLE POPUP/COOKIES --- 
+        # --- HANDLE POPUP/COOKIES --- (Omitere pentru simplitate) 
 
         try:
-            wait.until(EC.visibility_of_element_located((By.XPATH, base_rows_xpath)))
+            wait.until(EC.visibility_of_element_located((By.XPATH, main_container_xpath)))
         except:
-            results['Error'] = f"Eroare la încărcarea paginii Asian Handicap (Containerul de cote '{base_rows_xpath}' nu a fost găsit în 30s)."
+            results['Error'] = f"Eroare la încărcarea paginii Asian Handicap (Containerul principal '{main_container_xpath}' nu a fost găsit în 30s)."
             driver.quit()
             return dict(results)
         
         handicap_lines = []
         time.sleep(3) 
 
+        # Căutăm toate rândurile de cote din interiorul containerului principal
+        all_line_rows = driver.find_elements(By.XPATH, f"{main_container_xpath}//div[contains(@data-testid, 'table-main-row')]")
+
         # Extrage liniile AH 
-        for j in range(1, 101):
-            line_row_xpath = f'{base_rows_xpath}/div[{j}]'
-            line_row_element = find_element(driver, By.XPATH, line_row_xpath)
+        for line_row_element in all_line_rows:
             
-            if not line_row_element: break
+            driver.execute_script("arguments[0].click();", line_row_element)
+            time.sleep(1) 
 
-            # ACȚIUNE 1: DĂM CLICK PE RÂNDUL LINIEI PENTRU A DESCHIDE BOOKMAKERII
-            if ffi2(driver, line_row_xpath): 
-                time.sleep(1) 
-
-                try:
-                    # ACȚIUNE 2: Găsim rândul Betano pe baza Link-ului
-                    betano_row_xpath_full = f'{line_row_xpath}{BETANO_ROW_XPATH_TEMPLATE}'
-                    betano_row_element = driver.find_element(By.XPATH, betano_row_xpath_full)
-                    
-                    bm_name_element = betano_row_element.find_element(By.XPATH, f'.//p[contains(text(), "Betano")]')
-                    bm_name = bm_name_element.text.strip() if bm_name_element else "Betano.ro"
-
-
-                    # Cotele de închidere
-                    home_odd_xpath = betano_row_xpath_full + OU_HOME_ODD_REL_PATH
-                    away_odd_xpath = betano_row_xpath_full + OU_AWAY_ODD_REL_PATH
-                    
-                    close_home = ffi(driver, home_odd_xpath)
-                    close_away = ffi(driver, away_odd_xpath)
-                    
-                    if close_home and close_away and close_home != 'N/A' and close_away != 'N/A':
-                        
-                        # ACȚIUNE 3: CLICK PE COTE PENTRU COTE DE DESCHIDERE
-                        open_home = get_opening_odd_from_click(driver, home_odd_xpath)
-                        time.sleep(0.5)
-                        open_away = get_opening_odd_from_click(driver, away_odd_xpath)
-
-                        # Extrage Linia
-                        line_raw_text = ffi(driver, line_row_xpath + LINE_REL_PATH)
-                        line = line_raw_text.strip() if line_raw_text else 'N/A'
-                        
-                        data = {
-                            'Line': line,
-                            'Home_Over_Close': close_home,
-                            'Home_Over_Open': open_home,
-                            'Away_Under_Close': close_away,
-                            'Away_Under_Open': open_away,
-                            'Bookmaker': bm_name
-                        }
-                        if data['Line'] != 'N/A':
-                            handicap_lines.append(data)
-                            
-                            ffi2(driver, line_row_xpath) 
-                            break
-
-                except NoSuchElementException:
-                    pass 
+            try:
+                # ACȚIUNE 2: Găsim rândul Betano pe baza Link-ului, relativ la rândul liniei curente
+                betano_row_element = line_row_element.find_element(By.XPATH, f'.{BETANO_ROW_XPATH_TEMPLATE}')
                 
-                # Închide rândul liniei
-                ffi2(driver, line_row_xpath) 
-                time.sleep(0.5) 
+                # Extragem XPath-ul absolut al rândului Betano pentru a-l folosi la extracția cotelor
+                betano_row_xpath_full = driver.execute_script("var element = arguments[0]; var xpath = ''; while (element) { var tag = element.tagName; if (!tag) break; var parent = element.parentNode; var siblings = parent.children; var count = 0; var index = 0; for (var i = 0; i < siblings.length; i++) { var sibling = siblings[i]; if (sibling.tagName === tag) { count++; if (sibling === element) { index = count; } } } var tagName = tag.toLowerCase(); var xpathIndex = index > 1 ? '[' + index + ']' : ''; xpath = '/' + tagName + xpathIndex + xpath; element = parent; } return xpath.replace('html[1]/body[1]', '/html/body');", betano_row_element)
+
+
+                bm_name_element = betano_row_element.find_element(By.XPATH, f'.//p[contains(text(), "Betano")]')
+                bm_name = bm_name_element.text.strip() if bm_name_element else "Betano.ro"
+
+                # Cotele de închidere
+                home_odd_xpath = betano_row_xpath_full + OU_HOME_ODD_REL_PATH
+                away_odd_xpath = betano_row_xpath_full + OU_AWAY_ODD_REL_PATH
+                
+                close_home = ffi(driver, home_odd_xpath)
+                close_away = ffi(driver, away_odd_xpath)
+                
+                if close_home and close_away and close_home != 'N/A' and close_away != 'N/A':
+                    
+                    # ACȚIUNE 3: CLICK PE COTE PENTRU COTE DE DESCHIDERE
+                    open_home = get_opening_odd_from_click(driver, home_odd_xpath)
+                    time.sleep(0.5)
+                    open_away = get_opening_odd_from_click(driver, away_odd_xpath)
+
+                    # Extrage Linia
+                    line_raw_text = line_row_element.find_element(By.XPATH, f'.{LINE_REL_PATH}').text
+                    line = line_raw_text.strip() if line_raw_text else 'N/A'
+                    
+                    data = {
+                        'Line': line,
+                        'Home_Over_Close': close_home,
+                        'Home_Over_Open': open_home,
+                        'Away_Under_Close': close_away,
+                        'Away_Under_Open': open_away,
+                        'Bookmaker': bm_name
+                    }
+                    if data['Line'] != 'N/A':
+                        handicap_lines.append(data)
+                        
+                        driver.execute_script("arguments[0].click();", line_row_element)
+                        break
+
+            except NoSuchElementException:
+                pass 
+            
+            # Închide rândul liniei
+            driver.execute_script("arguments[0].click();", line_row_element) 
+            time.sleep(0.5) 
 
         results['Handicap_Lines'] = handicap_lines
             
