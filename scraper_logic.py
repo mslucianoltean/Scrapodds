@@ -1,4 +1,4 @@
-# scraper_logic.py
+# scraper_logic.py (COMPLET)
 
 import os
 import time
@@ -24,6 +24,7 @@ TYPE_ODDS = 'CLOSING'
 # 🛠️ FUNCȚII AJUTĂTOARE SELENIUM
 # ------------------------------------------------------------------------------
 
+# Toate funcțiile ajutătoare primesc acum 'driver' ca prim argument
 def find_element(driver, by_method, locator):
     """Găsește un element sau returnează None/False."""
     try:
@@ -60,7 +61,6 @@ def get_opening_odd(driver, xpath):
         data_in_the_bubble = driver.find_element(By.XPATH, "//*[@id='tooltiptext']") 
         hover_data = data_in_the_bubble.get_attribute("innerHTML")
 
-        # Logica de extragere a cotei de deschidere (Opening Odds)
         b = re.split('<br>', hover_data)
         c = [re.split('</strong>',y)[0] for y in b][-2] 
         opening_odd = re.split('<strong>', c)[1]
@@ -74,7 +74,6 @@ def fffi(driver, xpath):
     if TYPE_ODDS == 'OPENING':
         return get_opening_odd(driver, xpath) 
     else:
-        # Cota de închidere
         return ffi(driver, xpath) 
 
 def extract_odds_for_line(driver, row_xpath, home_col, away_col):
@@ -115,28 +114,28 @@ def scrape_basketball_match_full_data_filtered(link):
     """
     
     results = defaultdict(dict)
-    driver = None # Inițializare driver
+    driver = None 
 
-    # --- Configurare Headless ---
+    # --- Configurare Headless și căi ---
     chrome_options = Options()
     chrome_options.add_argument("--headless")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
     
-    # Adaugă calea către Chrome/Chromium pentru Streamlit Cloud/servere Linux
-    if os.environ.get("GOOGLE_CHROME_BIN"):
-        chrome_options.binary_location = os.environ.get("GOOGLE_CHROME_BIN")
+    # Setează calea către binarul Chrome/Chromium instalat de Streamlit/Apt
+    # '/usr/bin/chromium' sau '/usr/bin/google-chrome' sau 'chromium'
+    # Folosim calea pe care o știe sistemul
+    chrome_options.binary_location = os.environ.get("GOOGLE_CHROME_BIN", "/usr/bin/chromium")
 
     try:
-        # PENTRU STREAMLIT CLOUD (necesită instalare Chromium)
-        # Nu folosim webdriver-manager pe Streamlit Cloud/servere, ci calea directă.
+        # Folosim calea driver-ului instalat de packages.txt
         driver = webdriver.Chrome(
-            executable_path=os.environ.get("CHROMEDRIVER_PATH", "chromedriver"), 
+            executable_path=os.environ.get("CHROMEDRIVER_PATH", "/usr/bin/chromedriver"), 
             options=chrome_options
         )
     except Exception as e:
-        results['Error'] = f"Eroare la inițializarea driverului Headless. {e}"
+        results['Error'] = f"Eroare la inițializarea driverului Headless. Asigurați-vă că fișierul packages.txt conține 'chromium' și 'chromedriver'. Detalii: {e}"
         return dict(results)
 
     # Incepe scraping-ul
@@ -192,10 +191,11 @@ def scrape_basketball_match_full_data_filtered(link):
             results['Error_Handicap'] = "Nu s-a putut găsi tab-ul 'Asian Handicap'."
             
     except Exception as e:
-        results['Runtime_Error'] = f"A apărut o eroare în timpul scraping-ului: {e}"
+        results['Runtime_Error'] = f"A apărut o eroare neașteptată în timpul scraping-ului: {e}"
     
     finally:
         if driver:
             driver.quit() 
             
     return dict(results)
+ 
