@@ -1,5 +1,4 @@
-
-# scraper_logic.py (VERSIUNEA FINALĂ ȘI INTEGRALĂ - CU ANCORĂ REACT)
+# scraper_logic.py (VERSIUNEA FINALĂ CU ÎNCHIDERE POP-UP)
 
 import os
 import time
@@ -41,17 +40,16 @@ def ffi2(driver, xpath):
     """Dă click pe elementul de la xpath dacă există."""
     element = find_element(driver, By.XPATH, xpath)
     if element:
+        # Folosim JavaScript pentru a forța click-ul
         driver.execute_script("arguments[0].click();", element)
         return True
     return False
 
 def get_bookmaker_name_from_div(driver, row_xpath):
     """Extrage numele bookmakerului dintr-un rând bazat pe DIV."""
-    # Presupunem că numele este într-un link (<a>) în interiorul rândului (div)
     xpath = f'{row_xpath}//div[@class="table-main__row-content"]//a'
     element = find_element(driver, By.XPATH, xpath)
     return element.text.strip() if element else None
-
 
 # COTE DE DESCHIDERE DEZACTIVATE PENTRU STABILITATE
 def get_opening_odd(driver, xpath):
@@ -63,7 +61,7 @@ def fffi(driver, xpath):
     return ffi(driver, xpath) 
 
 # ------------------------------------------------------------------------------
-# 🚀 FUNCȚIA PRINCIPALĂ DE SCRAPING (ADAPTATĂ LA DIVS & REACT ANCHOR)
+# 🚀 FUNCȚIA PRINCIPALĂ DE SCRAPING (CU ÎNCHIDERE POP-UP)
 # ------------------------------------------------------------------------------
 
 def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
@@ -74,7 +72,7 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
     global TARGET_BOOKMAKER 
     
     results = defaultdict(dict)
-    results['Match'] = 'Scraping activat' # Placeholder 
+    results['Match'] = 'Scraping activat'
     driver = None 
 
     # --- Inițializare driver ---
@@ -99,10 +97,8 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
     try:
         wait = WebDriverWait(driver, 20)
         
-        # ANCORA NOUĂ (React Header)
-        match_title_xpath = '/html/body/div[1]/div[1]/div[1]/div/main/div[4]/div[2]/div[1]'
-        
-        # Ancora pentru elementul părinte al rândurilor de cote (structura DIV)
+        # ANCORE
+        general_anchor_xpath = '/html/body/div[1]/div[1]/div[1]/div/main/div[4]/div[2]/div[1]'
         base_rows_xpath = '/html/body/div[1]/div[1]/div[1]/div/main/div[4]/div[2]/div[2]/div[2]'
 
         # ----------------------------------------------------
@@ -110,21 +106,34 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         # ----------------------------------------------------
         driver.get(ou_link)
         
+        # --- HANDLE POPUP/COOKIES ---
         try:
-            # Așteaptă titlul (ancora React)
-            wait.until(EC.visibility_of_element_located((By.XPATH, match_title_xpath)))
+            # Încercare de a găsi și accepta pop-up-ul de cookie-uri OddsPortal
+            cookie_accept_xpath = '//*[@id="onetrust-accept-btn-handler"]'
+            cookie_accept_button = find_element(driver, By.XPATH, cookie_accept_xpath)
+            if cookie_accept_button:
+                driver.execute_script("arguments[0].click();", cookie_accept_button)
+                time.sleep(1) # Pauză scurtă după click
+        except Exception:
+            # Ignorăm erorile, înseamnă că pop-up-ul nu a apărut sau a fost deja acceptat
+            pass
+        # ----------------------------
+
+        try:
+            # Așteaptă ancora generală pentru a semnala încărcarea datelor
+            wait.until(EC.visibility_of_element_located((By.XPATH, general_anchor_xpath)))
         except:
-            results['Error'] = "Eroare la încărcarea paginii Over/Under (Noua ancoră React nu a fost găsită)."
+            results['Error'] = "Eroare la încărcarea paginii Over/Under (Ancora generală nu a fost găsită)."
             driver.quit()
             return dict(results)
 
-        # Așteaptă containerul de rânduri
+        # Așteaptă containerul specific de rânduri
         wait.until(EC.visibility_of_element_located((By.XPATH, base_rows_xpath)))
         
         ou_lines = []
         time.sleep(3) 
         
-        # Extrage liniile OU (rândurile sunt div[j])
+        # Extrage liniile OU 
         for j in range(1, 101):
             row_container_xpath = f'{base_rows_xpath}/div[{j}]'
             
@@ -134,8 +143,8 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
             
             if bm_name and TARGET_BOOKMAKER in bm_name:
                 
-                home_odd_xpath = f'{row_container_xpath}/div[1]' # Poziția Home/Over
-                away_odd_xpath = f'{row_container_xpath}/div[2]' # Poziția Away/Under
+                home_odd_xpath = f'{row_container_xpath}/div[1]' 
+                away_odd_xpath = f'{row_container_xpath}/div[2]' 
                 
                 close_home = fffi(driver, home_odd_xpath)
                 close_away = fffi(driver, away_odd_xpath)
@@ -163,12 +172,24 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         # ----------------------------------------------------
         driver.get(ah_link)
         
+        # --- HANDLE POPUP/COOKIES (Reîncărcăm pagina, deci pop-up-ul poate reapărea) ---
+        try:
+            cookie_accept_xpath = '//*[@id="onetrust-accept-btn-handler"]'
+            cookie_accept_button = find_element(driver, By.XPATH, cookie_accept_xpath)
+            if cookie_accept_button:
+                driver.execute_script("arguments[0].click();", cookie_accept_button)
+                time.sleep(1)
+        except Exception:
+            pass
+        # ----------------------------
+
+        wait.until(EC.visibility_of_element_located((By.XPATH, general_anchor_xpath)))
         wait.until(EC.visibility_of_element_located((By.XPATH, base_rows_xpath)))
         
         handicap_lines = []
         time.sleep(3) 
 
-        # Extrage liniile AH (Aceeași logică ca la OU)
+        # Extrage liniile AH 
         for j in range(1, 101):
             row_container_xpath = f'{base_rows_xpath}/div[{j}]'
             
