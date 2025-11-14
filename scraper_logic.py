@@ -1,4 +1,4 @@
-# scraper_logic.py (COMPLET)
+# scraper_logic.py
 
 import os
 import time
@@ -6,6 +6,8 @@ import re
 import json
 from collections import defaultdict
 from selenium import webdriver
+# Importul Service este CRUCIAL pentru Selenium 4+
+from selenium.webdriver.chrome.service import Service 
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.action_chains import ActionChains
@@ -24,7 +26,6 @@ TYPE_ODDS = 'CLOSING'
 # 🛠️ FUNCȚII AJUTĂTOARE SELENIUM
 # ------------------------------------------------------------------------------
 
-# Toate funcțiile ajutătoare primesc acum 'driver' ca prim argument
 def find_element(driver, by_method, locator):
     """Găsește un element sau returnează None/False."""
     try:
@@ -71,6 +72,7 @@ def get_opening_odd(driver, xpath):
 
 def fffi(driver, xpath):
     """Returnează cota (în funcție de TYPE_ODDS). Extrage cota de deschidere sau cota de închidere."""
+    global TYPE_ODDS
     if TYPE_ODDS == 'OPENING':
         return get_opening_odd(driver, xpath) 
     else:
@@ -78,6 +80,8 @@ def fffi(driver, xpath):
 
 def extract_odds_for_line(driver, row_xpath, home_col, away_col):
     """Extrage linia și cotele de deschidere/închidere pentru o pereche de coloane."""
+    
+    global TYPE_ODDS
     
     xpath_home_odd = f'{row_xpath}/td[{home_col}]/div'
     xpath_away_odd = f'{row_xpath}/td[{away_col}]/div'
@@ -104,7 +108,7 @@ def extract_odds_for_line(driver, row_xpath, home_col, away_col):
     }
 
 # ------------------------------------------------------------------------------
-# 🚀 FUNCȚIA PRINCIPALĂ DE SCRAPING (ADAPTATĂ PENTRU HEADLESS)
+# 🚀 FUNCȚIA PRINCIPALĂ DE SCRAPING (CU SERVICE)
 # ------------------------------------------------------------------------------
 
 def scrape_basketball_match_full_data_filtered(link):
@@ -112,6 +116,8 @@ def scrape_basketball_match_full_data_filtered(link):
     Scrapează toate liniile de Over/Under și Handicap pentru un singur meci,
     filtrând pentru TARGET_BOOKMAKER, folosind driver Headless.
     """
+    
+    global TARGET_BOOKMAKER # Asigură-te că variabilele globale sunt disponibile
     
     results = defaultdict(dict)
     driver = None 
@@ -123,19 +129,21 @@ def scrape_basketball_match_full_data_filtered(link):
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
     
-    # Setează calea către binarul Chrome/Chromium instalat de Streamlit/Apt
-    # '/usr/bin/chromium' sau '/usr/bin/google-chrome' sau 'chromium'
-    # Folosim calea pe care o știe sistemul
+    # Căile standard de deployment
     chrome_options.binary_location = os.environ.get("GOOGLE_CHROME_BIN", "/usr/bin/chromium")
+    chromedriver_path = os.environ.get("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
 
     try:
-        # Folosim calea driver-ului instalat de packages.txt
+        # **CORECTARE CHEIE:** Folosim Service() pentru a transmite calea driverului
+        service = Service(chromedriver_path)
+        
         driver = webdriver.Chrome(
-            executable_path=os.environ.get("CHROMEDRIVER_PATH", "/usr/bin/chromedriver"), 
+            service=service, # Transmitem obiectul Service
             options=chrome_options
         )
+        
     except Exception as e:
-        results['Error'] = f"Eroare la inițializarea driverului Headless. Asigurați-vă că fișierul packages.txt conține 'chromium' și 'chromedriver'. Detalii: {e}"
+        results['Error'] = f"Eroare la inițializarea driverului Headless. Detalii: {e}"
         return dict(results)
 
     # Incepe scraping-ul
@@ -170,7 +178,7 @@ def scrape_basketball_match_full_data_filtered(link):
             results['Over_Under_Lines'] = ou_lines
         else:
             results['Error_Over_Under'] = "Nu s-a putut găsi tab-ul 'Total'."
-
+        
         # --- Extrage cotele Handicap (Asian Handicap) ---
         handicap_tab_xpath = '//ul[@id="bettype-tabs"]/li[a[contains(@title, "Asian Handicap")]]'
         handicap_lines = []
@@ -198,4 +206,3 @@ def scrape_basketball_match_full_data_filtered(link):
             driver.quit() 
             
     return dict(results)
- 
