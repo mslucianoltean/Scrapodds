@@ -1,15 +1,18 @@
-# scraper_logic.py (VERSIUNEA FINALĂ CU PATHS SPECIFICE)
+# scraper_logic.py (VERSIUNEA FINALĂ ȘI STABILĂ)
 
 import os
 import time
 import re
 from collections import defaultdict
 from selenium import webdriver
+# Importuri pentru Selenium 4.x și Așteptare Explicită
 from selenium.webdriver.chrome.service import Service 
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.common.exceptions import NoSuchElementException
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC 
 
 # ------------------------------------------------------------------------------
 # ⚙️ CONFIGURARE
@@ -105,7 +108,7 @@ def extract_odds_for_line(driver, row_xpath, home_col, away_col):
     }
 
 # ------------------------------------------------------------------------------
-# 🚀 FUNCȚIA PRINCIPALĂ DE SCRAPING (CU SERVICE)
+# 🚀 FUNCȚIA PRINCIPALĂ DE SCRAPING
 # ------------------------------------------------------------------------------
 
 def scrape_basketball_match_full_data_filtered(link):
@@ -119,7 +122,7 @@ def scrape_basketball_match_full_data_filtered(link):
     results = defaultdict(dict)
     driver = None 
 
-    # --- Configurare Headless și căi ---
+    # --- Configurare Headless și căi (Selenium 4.x) ---
     chrome_options = Options()
     chrome_options.add_argument("--headless")
     chrome_options.add_argument("--no-sandbox")
@@ -130,6 +133,7 @@ def scrape_basketball_match_full_data_filtered(link):
     chromedriver_path = os.environ.get("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
 
     try:
+        # Corecție: Folosim Service() pentru a inițializa driverul
         service = Service(chromedriver_path)
         driver = webdriver.Chrome(service=service, options=chrome_options)
         
@@ -140,20 +144,34 @@ def scrape_basketball_match_full_data_filtered(link):
     # Incepe scraping-ul
     try:
         driver.get(link)
-        time.sleep(5) 
-
-        # Extrage titlul meciului (pentru a verifica dacă pagina s-a încărcat)
-        results['Match'] = ffi(driver, '//*[@id="col-content"]/h1')
         
+        # ----------------------------------------------------
+        # CORECȚIA CRITICĂ: Așteptare Explicită pentru Titlu (h1)
+        # ----------------------------------------------------
+        wait = WebDriverWait(driver, 20)
+        
+        # XPath robust pentru titlul meciului (h1)
+        match_title_xpath = '//*[@id="col-content"]/h1'
+        
+        # Așteptăm ca elementul să fie prezent și vizibil
+        wait.until(EC.visibility_of_element_located((By.XPATH, match_title_xpath)))
+        
+        # Extrage titlul meciului (care acum este garantat că există)
+        results['Match'] = ffi(driver, match_title_xpath)
+        
+        # Fără acest titlu, nu putem continua
         if not results['Match']:
-            results['Error'] = "Nu s-au putut extrage detaliile meciului. Verificați link-ul sau logica de așteptare."
+            results['Error'] = "Eroare de extracție: Elementul titlu (h1) a fost găsit dar este gol."
             driver.quit()
             return dict(results)
         
         # --- Extrage cotele Over/Under (Total) ---
-        # Folosim XPath-ul specificat de utilizator, scurtat pentru lizibilitate
+        # XPath specificat: li[3]
         total_tab_xpath = '/html/body/div[1]/div[1]/div[1]/div/main/div[4]/div[2]/div[2]/div[1]/div[1]/ul/li[3]/a/div'
         ou_lines = []
+        
+        time.sleep(1) # Pauză scurtă după încărcarea principală
+        
         if ffi2(driver, total_tab_xpath):
             time.sleep(2) 
             for j in range(1, 101):
@@ -171,7 +189,7 @@ def scrape_basketball_match_full_data_filtered(link):
             results['Error_Over_Under'] = "Nu s-a putut găsi tab-ul 'Total' (XPath li[3] invalid)."
 
         # --- Extrage cotele Handicap (Asian Handicap) ---
-        # Folosim XPath-ul specificat de utilizator
+        # XPath specificat: li[5]
         handicap_tab_xpath = '/html/body/div[1]/div[1]/div[1]/div/main/div[4]/div[2]/div[2]/div[1]/div[1]/ul/li[5]'
         handicap_lines = []
         if ffi2(driver, handicap_tab_xpath):
