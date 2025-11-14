@@ -1,4 +1,4 @@
-# scraper_logic.py (VERSIUNEA 7.0 - AȘTEPTARE PE CLASĂ ȘI LOGICĂ RE-SIMPLIFICATĂ)
+# scraper_logic.py (VERSIUNEA 8.0 - AȘTEPTARE PE BODY ȘI SCROLL FORȚAT)
 
 import os
 import time
@@ -47,7 +47,6 @@ def ffi2(driver, xpath):
 def get_opening_odd_from_click(driver, element_to_click_xpath):
     """Simulează click pe cota de închidere, așteaptă popup-ul și extrage cota de deschidere."""
     
-    # Tăiem '/div/p' pentru a obține XPath-ul div-ului care trebuie apăsat (e.g., div[3] sau div[4])
     div_to_click_xpath = '/'.join(element_to_click_xpath.split('/')[:-2])
     
     if not ffi2(driver, div_to_click_xpath):
@@ -56,7 +55,6 @@ def get_opening_odd_from_click(driver, element_to_click_xpath):
     try:
         time.sleep(0.5) 
         
-        # XPath-ul pentru cota de deschidere din pop-up
         popup_open_odd_xpath = '//*[@id="tooltip_v"]//div[2]/p[@class="odds-text"]'
         
         wait = WebDriverWait(driver, 5) 
@@ -89,7 +87,7 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
     results['Match'] = 'Scraping activat'
     driver = None 
     
-    # --- Inițializare driver (rămâne standard) ---
+    # --- Inițializare driver ---
     chrome_options = Options()
     chrome_options.add_argument("--headless")
     chrome_options.add_argument("--no-sandbox")
@@ -111,8 +109,8 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
     try:
         wait = WebDriverWait(driver, 30)
         
-        # Element generic de așteptat pentru a confirma încărcarea paginii
-        LOADING_WAIT_XPATH = '//div[contains(@class, "table-main")]'
+        # Element de așteptare generic: header-ul paginii care conține meciul (relativ stabil)
+        LOADING_WAIT_XPATH = '//div[contains(@class, "flex-wrap")]/h1[1]' 
         
         # Căi relative (din interiorul rândului Betano) - vizează direct <p>
         OU_HOME_ODD_REL_PATH = '/div[3]/div/div/p' 
@@ -144,11 +142,17 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
             pass
         # ----------------------------
         
-        # Așteptăm elementul general de încărcare
+        # ACȚIUNE 1: Așteptăm un element cheie al antetului și dăm scroll
         try:
             wait.until(EC.visibility_of_element_located((By.XPATH, LOADING_WAIT_XPATH)))
+            # Scroll forțat pentru a randa conținutul dinamic din partea de jos
+            driver.execute_script("window.scrollTo(0, 500);")
+            time.sleep(1) 
+            driver.execute_script("window.scrollTo(0, 0);")
+            time.sleep(1) 
+
         except:
-            results['Error'] = f"Eroare la încărcarea paginii Over/Under (Elementul principal '{LOADING_WAIT_XPATH}' nu a fost găsit în 30s)."
+            results['Error'] = f"Eroare la încărcarea paginii Over/Under (Antetul '{LOADING_WAIT_XPATH}' nu a fost găsit în 30s)."
             driver.quit()
             return dict(results)
         
@@ -161,21 +165,19 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         # Iterăm prin rândurile găsite
         for line_row_element in all_line_rows:
             
-            # ACȚIUNE 1: DĂM CLICK PE RÂNDUL LINIEI PENTRU A DESCHIDE BOOKMAKERII
+            # ACȚIUNE 2: DĂM CLICK PE RÂNDUL LINIEI PENTRU A DESCHIDE BOOKMAKERII
             driver.execute_script("arguments[0].click();", line_row_element)
-            time.sleep(1) 
+            time.sleep(1.5) # Timp de așteptare mai lung pentru expandarea rândului
 
             try:
-                # ACȚIUNE 2: Găsim rândul Betano pe baza Link-ului, relativ la rândul liniei curente
+                # ACȚIUNE 3: Găsim rândul Betano pe baza Link-ului, relativ la rândul liniei curente
                 betano_row_element = line_row_element.find_element(By.XPATH, BETANO_ROW_REL_XPATH)
                 
                 # Extragem numele (pentru afișare)
                 bm_name_element = betano_row_element.find_element(By.XPATH, f'.//p[contains(text(), "Betano")]')
                 bm_name = bm_name_element.text.strip() if bm_name_element else "Betano.ro"
 
-                # Extragem XPath-ul absolut (sau un locator stabil) al rândului Betano pentru a construi cotele
-                # Vom folosi XPath-ul absolut al rândului Betano pentru a extrage cotele de închidere
-                # (Re-construim XPath-ul absolut al elementului Betano găsit)
+                # Extragem XPath-ul absolut al rândului Betano (mai sigur pentru click-uri)
                 betano_row_xpath_full = driver.execute_script("""
                     var element = arguments[0]; 
                     var xpath = ''; 
@@ -210,7 +212,7 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
                 
                 if close_home and close_away and close_home != 'N/A' and close_away != 'N/A':
                     
-                    # ACȚIUNE 3: CLICK PE COTE PENTRU COTE DE DESCHIDERE
+                    # ACȚIUNE 4: CLICK PE COTE PENTRU COTE DE DESCHIDERE
                     open_home = get_opening_odd_from_click(driver, home_odd_xpath)
                     time.sleep(0.5)
                     open_away = get_opening_odd_from_click(driver, away_odd_xpath)
@@ -251,8 +253,12 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         
         try:
             wait.until(EC.visibility_of_element_located((By.XPATH, LOADING_WAIT_XPATH)))
+            driver.execute_script("window.scrollTo(0, 500);")
+            time.sleep(1) 
+            driver.execute_script("window.scrollTo(0, 0);")
+            time.sleep(1) 
         except:
-            results['Error'] = f"Eroare la încărcarea paginii Asian Handicap (Elementul principal '{LOADING_WAIT_XPATH}' nu a fost găsit în 30s)."
+            results['Error'] = f"Eroare la încărcarea paginii Asian Handicap (Antetul '{LOADING_WAIT_XPATH}' nu a fost găsit în 30s)."
             driver.quit()
             return dict(results)
         
@@ -266,7 +272,7 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         for line_row_element in all_line_rows:
             
             driver.execute_script("arguments[0].click();", line_row_element)
-            time.sleep(1) 
+            time.sleep(1.5) 
 
             try:
                 # ACȚIUNE 2: Găsim rândul Betano pe baza Link-ului, relativ la rândul liniei curente
