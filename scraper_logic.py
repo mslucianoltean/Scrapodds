@@ -1,4 +1,4 @@
-# scraper_logic.py (VERSIUNEA FINALĂ ȘI INTEGRALĂ - ANCORĂ DIRECTĂ PE RÂNDURI)
+# scraper_logic.py (VERSIUNEA FINALĂ CU AȘTEPTARE MĂRITĂ LA 30S)
 
 import os
 import time
@@ -21,7 +21,7 @@ TYPE_ODDS = 'CLOSING'
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
-# 🛠️ FUNCȚII AJUTĂTOARE SELENIUM (Rămân neschimbate)
+# 🛠️ FUNCȚII AJUTĂTOARE SELENIUM 
 # ------------------------------------------------------------------------------
 
 def find_element(driver, by_method, locator):
@@ -47,7 +47,6 @@ def ffi2(driver, xpath):
 
 def get_bookmaker_name_from_div(driver, row_xpath):
     """Extrage numele bookmakerului dintr-un rând bazat pe DIV."""
-    # Căutăm simplu primul DIV din rând
     xpath = f'{row_xpath}/div[1]' 
     element = find_element(driver, By.XPATH, xpath)
     return element.text.strip() if element else None
@@ -62,7 +61,7 @@ def fffi(driver, xpath):
     return ffi(driver, xpath) 
 
 # ------------------------------------------------------------------------------
-# 🚀 FUNCȚIA PRINCIPALĂ DE SCRAPING (ANCORĂ DIRECTĂ PE RÂNDURI)
+# 🚀 FUNCȚIA PRINCIPALĂ DE SCRAPING (AȘTEPTARE MĂRITĂ)
 # ------------------------------------------------------------------------------
 
 def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
@@ -96,15 +95,17 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
 
     # Incepe scraping-ul
     try:
-        wait = WebDriverWait(driver, 20)
+        # Așteptare mărită la 30 de secunde
+        wait = WebDriverWait(driver, 30)
         
-        # Containerul de Rânduri (Base Rows) - Acesta devine singura noastră ancoră.
+        # Containerul de Rânduri (Base Rows)
         base_rows_xpath = '/html/body/div[1]/div[1]/div[1]/div/main/div[4]/div[2]/div[2]/div[2]'
 
         # ----------------------------------------------------
         # ETAPA 1: Extrage cotele Over/Under
         # ----------------------------------------------------
         driver.get(ou_link)
+        time.sleep(2) # Pauză suplimentară imediat după navigare
         
         # --- HANDLE POPUP/COOKIES ---
         try:
@@ -121,8 +122,8 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
             # Așteaptă containerul specific de rânduri (cu vizibilitate)
             wait.until(EC.visibility_of_element_located((By.XPATH, base_rows_xpath)))
         except:
-            # Schimbăm mesajul de eroare
-            results['Error'] = f"Eroare la încărcarea paginii Over/Under (Containerul de cote '{base_rows_xpath}' nu a fost găsit în 20s)."
+            # Mesaj de eroare actualizat
+            results['Error'] = f"Eroare la încărcarea paginii Over/Under (Containerul de cote '{base_rows_xpath}' nu a fost găsit în 30s)."
             driver.quit()
             return dict(results)
         
@@ -168,6 +169,7 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         # ETAPA 2: Extrage cotele Handicap
         # ----------------------------------------------------
         driver.get(ah_link)
+        time.sleep(2)
         
         # --- HANDLE POPUP/COOKIES ---
         try:
@@ -184,7 +186,7 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         try:
             wait.until(EC.visibility_of_element_located((By.XPATH, base_rows_xpath)))
         except:
-            results['Error'] = f"Eroare la încărcarea paginii Asian Handicap (Containerul de cote '{base_rows_xpath}' nu a fost găsit în 20s)."
+            results['Error'] = f"Eroare la încărcarea paginii Asian Handicap (Containerul de cote '{base_rows_xpath}' nu a fost găsit în 30s)."
             driver.quit()
             return dict(results)
         
