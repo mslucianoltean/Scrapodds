@@ -38,7 +38,7 @@ st.markdown("---")
 
 st.info(
     f"Acest instrument extrage toate liniile (Total și Handicap) de la **{TARGET_BOOKMAKER}** "
-    f"pentru orice meci de baschet de pe OddsPortal."
+    f"pentru orice meci de baschet de pe OddsPortal.")
 st.header("URL-uri Meci (Over/Under & Asian Handicap)")
 
 # Input-uri pentru cele două URL-uri
