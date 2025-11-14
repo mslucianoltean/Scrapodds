@@ -1,4 +1,4 @@
-# scraper_logic.py (VERSIUNEA 16.0 - PASUL 1: GĂSIREA LINIILOR)
+# scraper_logic.py (VERSIUNEA 18.0 - Clic Explicit pe Tabul OU)
 
 import os
 import time
@@ -18,9 +18,8 @@ TARGET_BOOKMAKER_HREF_PARTIAL = "betano"
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
-# 🛠️ FUNCȚII AJUTĂTOARE SELENIUM (Păstrate pentru logica internă)
+# 🛠️ FUNCȚII AJUTĂTOARE SELENIUM 
 # ------------------------------------------------------------------------------
-# ... (Funcțiile ajutătoare rămân identice: find_element, ffi, ffi2, get_opening_odd_from_click)
 
 def find_element(driver, by_method, locator):
     """Găsește un element sau returnează None/False."""
@@ -32,7 +31,7 @@ def find_element(driver, by_method, locator):
 def ffi(element_or_driver, by_method, locator):
     """Returnează textul elementului de la locator dacă există. Lucrează cu Driver sau Element."""
     try:
-        element = element_or_or_driver.find_element(by_method, locator)
+        element = element_or_driver.find_element(by_method, locator)
         return element.text.strip()
     except NoSuchElementException:
         return None
@@ -41,7 +40,10 @@ def ffi2(driver, xpath):
     """Dă click pe elementul de la xpath dacă există (folosind JS)."""
     element = find_element(driver, By.XPATH, xpath)
     if element:
-        driver.execute_script("arguments[0].click();", element)
+        # Folosim WebDriverWait pentru a aștepta ca elementul să fie click-uibil
+        wait_short = WebDriverWait(driver, 5)
+        clickable_element = wait_short.until(EC.element_to_be_clickable((By.XPATH, xpath)))
+        driver.execute_script("arguments[0].click();", clickable_element)
         return True
     return False
 
@@ -110,8 +112,16 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
     try:
         wait = WebDriverWait(driver, 30)
         
-        # Căutăm TOATE rândurile de linii de cote (Folosim clasa stabilă)
+        # Punctele de referință
+        OU_TAB_XPATH = "//li[a/div[text()='Over/Under']]"
+        AH_TAB_XPATH = "//li[a/div[text()='Asian Handicap']]"
         LINE_ROWS_XPATH = '//div[contains(@class, "table-main__row--details-line-wrapper")]'
+
+        # Căi interne
+        OU_HOME_ODD_REL_PATH = '/div[3]/div/div/p' 
+        OU_AWAY_ODD_REL_PATH = '/div[4]/div/div/p' 
+        BETANO_ROW_REL_XPATH = f'.//a[contains(@href, "{TARGET_BOOKMAKER_HREF_PARTIAL}")]/ancestor::div[contains(@class, "table-main__row--details-line")]'
+        LINE_REL_PATH = './/span[contains(@class, "table-main__detail-line-more")]'
 
         # ----------------------------------------------------
         # ETAPA 1: Extrage cotele Over/Under
@@ -122,65 +132,45 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         try:
             wait.until(EC.presence_of_element_located((By.XPATH, '//body')))
             driver.refresh()
-            time.sleep(10) # 👈 Așteptare extinsă de 10 secunde
+            time.sleep(3) 
             
-            # Așteptăm ca prima linie de cote să fie vizibilă - PUNCTUL CRITIC
+            # ACȚIUNE 2: Clic pe tabul Over/Under pentru a forța încărcarea liniilor
+            if not ffi2(driver, OU_TAB_XPATH):
+                 results['Error'] = f"Eroare: Nu a putut fi găsit/apăsat tabul Over/Under ('{OU_TAB_XPATH}')."
+                 driver.quit()
+                 return dict(results)
+                 
+            time.sleep(2) # Așteptăm după clic
+            
+            # ACȚIUNE 3: Așteptăm liniile de cote
             wait.until(EC.visibility_of_element_located((By.XPATH, LINE_ROWS_XPATH)))
 
         except:
-            results['Error'] = f"Eroare la încărcarea paginii Over/Under (Eșec în a găsi liniile de cote '{LINE_ROWS_XPATH}' în 30s după refresh și 10s de așteptare)."
+            results['Error'] = f"Eroare la încărcarea paginii Over/Under (Eșec în a găsi liniile de cote '{LINE_ROWS_XPATH}' după clic pe tabul OU)."
             driver.quit()
             return dict(results)
         
-        # Dacă ajungem aici, înseamnă că liniile de cote sunt prezente!
-        # Următorul pas este să le colectăm și să trecem la extracția cotelor.
-        
         ou_lines = []
-        # Nu mai așteptăm timp fix, ci căutăm direct
+        time.sleep(3) 
         
         # Căutăm toate rândurile de linii de cote (elemente)
         all_line_rows = driver.find_elements(By.XPATH, LINE_ROWS_XPATH)
         
-        if not all_line_rows:
-            # Caz de siguranță (deși wait.until ar trebui să prevină asta)
-            results['Error'] = f"A fost găsită cel puțin o linie, dar colecția finală este goală. Eșec în găsirea liniilor după așteptare."
-            driver.quit()
-            return dict(results)
-
-
-        # --- LOGICA DE EXTRACȚIE (Păstrată dar nefocusată acum) ---
-        # Vom simula doar extragerea primei linii găsite.
-        
-        # Căi relative (din interiorul rândului Betano) - vizează direct <p>
-        OU_HOME_ODD_REL_PATH = '/div[3]/div/div/p' 
-        OU_AWAY_ODD_REL_PATH = '/div[4]/div/div/p' 
-        
-        # Căutăm rândul bookmaker-ului pe baza link-ului "betano"
-        BETANO_ROW_REL_XPATH = f'.//a[contains(@href, "{TARGET_BOOKMAKER_HREF_PARTIAL}")]/ancestor::div[contains(@class, "table-main__row--details-line")]'
-        
-        # Extrage Linia (din rândul Părinte)
-        LINE_REL_PATH = './/span[contains(@class, "table-main__detail-line-more")]'
-
-        
+        # Iterăm prin rândurile găsite și extragem cotele
         for line_row_element in all_line_rows:
             
-            # ACȚIUNE 2: DĂM CLICK PE RÂNDUL LINIEI PENTRU A DESCHIDE BOOKMAKERII
             driver.execute_script("arguments[0].click();", line_row_element)
             time.sleep(1.5) 
 
             try:
-                # ACȚIUNE 3: Găsim rândul Betano pe baza Link-ului
                 betano_row_element = line_row_element.find_element(By.XPATH, BETANO_ROW_REL_XPATH)
                 
-                # Extragem Linia (relativ la rândul liniei)
                 line_raw_text = ffi(line_row_element, By.XPATH, LINE_REL_PATH)
                 line = line_raw_text.strip() if line_raw_text else 'N/A'
                 
-                # Extragem numele (pentru afișare)
                 bm_name_element = betano_row_element.find_element(By.XPATH, f'.//p[contains(text(), "Betano")]')
                 bm_name = bm_name_element.text.strip() if bm_name_element else "Betano.ro"
 
-                # Extragem XPath-ul absolut al rândului Betano (pentru a construi cotele)
                 betano_row_xpath_full = driver.execute_script("""
                     var element = arguments[0]; 
                     var xpath = ''; 
@@ -206,17 +196,14 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
                 """, betano_row_element)
 
 
-                # Cotele de închidere XPath-uri complete
                 home_odd_xpath = betano_row_xpath_full + OU_HOME_ODD_REL_PATH
                 away_odd_xpath = betano_row_xpath_full + OU_AWAY_ODD_REL_PATH
                 
                 close_home = ffi(driver, By.XPATH, home_odd_xpath) 
                 close_away = ffi(driver, By.XPATH, away_odd_xpath) 
                 
-                # ... (Restul logicii de extragere a cotelor) ...
                 if close_home and close_away and close_home != 'N/A' and close_away != 'N/A':
                     
-                    # ACȚIUNE 4: CLICK PE COTE PENTRU COTE DE DESCHIDERE
                     open_home = get_opening_odd_from_click(driver, home_odd_xpath)
                     time.sleep(0.5)
                     open_away = get_opening_odd_from_click(driver, away_odd_xpath)
@@ -232,20 +219,19 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
                     if data['Line'] != 'N/A':
                         ou_lines.append(data)
                         
-                        driver.execute_script("arguments[0].click();", line_row_element) # Închide rândul
-                        break # Oprim la prima linie Betano găsită
+                        driver.execute_script("arguments[0].click();", line_row_element)
+                        break 
                         
             except NoSuchElementException:
                 pass 
             
-            # Închide rândul liniei (click din nou pe el)
             driver.execute_script("arguments[0].click();", line_row_element)
             time.sleep(0.5) 
         
         results['Over_Under_Lines'] = ou_lines
 
         # ----------------------------------------------------
-        # ETAPA 2: Extrage cotele Handicap (Logică Identică)
+        # ETAPA 2: Extrage cotele Handicap 
         # ----------------------------------------------------
         
         driver.get(ah_link)
@@ -254,18 +240,27 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         try:
             wait.until(EC.presence_of_element_located((By.XPATH, '//body')))
             driver.refresh()
-            time.sleep(10) 
-            # Așteptăm elementul principal
+            time.sleep(3) 
+            
+            # ACȚIUNE 2: Clic pe tabul Asian Handicap pentru a forța încărcarea liniilor
+            if not ffi2(driver, AH_TAB_XPATH):
+                 results['Error_AH'] = f"Eroare: Nu a putut fi găsit/apăsat tabul Asian Handicap ('{AH_TAB_XPATH}')."
+                 driver.quit()
+                 return dict(results)
+                 
+            time.sleep(2) 
+            
+            # ACȚIUNE 3: Așteptăm liniile de cote
             wait.until(EC.visibility_of_element_located((By.XPATH, LINE_ROWS_XPATH)))
+            
         except:
-            results['Error_AH'] = f"Eroare la încărcarea paginii Asian Handicap după refresh (Nicio linie de cote '{LINE_ROWS_XPATH}' nu a fost găsită în 30s)."
+            results['Error_AH'] = f"Eroare la încărcarea paginii Asian Handicap (Nicio linie de cote '{LINE_ROWS_XPATH}' nu a fost găsită în 30s după clic pe tabul AH)."
             driver.quit()
             return dict(results)
         
         handicap_lines = []
         time.sleep(3) 
 
-        # Căutăm toate rândurile de cote din interiorul containerului principal
         all_line_rows = driver.find_elements(By.XPATH, LINE_ROWS_XPATH)
 
         # Extrage liniile AH 
@@ -275,14 +270,14 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
             time.sleep(1.5) 
 
             try:
-                # ACȚIUNE 2: Găsim rândul Betano pe baza Link-ului, relativ la rândul liniei curente
                 betano_row_element = line_row_element.find_element(By.XPATH, BETANO_ROW_REL_XPATH)
                 
-                # Extragem numele (pentru afișare)
+                line_raw_text = ffi(line_row_element, By.XPATH, LINE_REL_PATH)
+                line = line_raw_text.strip() if line_raw_text else 'N/A'
+                
                 bm_name_element = betano_row_element.find_element(By.XPATH, f'.//p[contains(text(), "Betano")]')
                 bm_name = bm_name_element.text.strip() if bm_name_element else "Betano.ro"
 
-                # Extragem XPath-ul absolut al rândului Betano pentru a-l folosi la extracția cotelor
                 betano_row_xpath_full = driver.execute_script("""
                     var element = arguments[0]; 
                     var xpath = ''; 
@@ -308,7 +303,6 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
                 """, betano_row_element)
 
 
-                # Cotele de închidere
                 home_odd_xpath = betano_row_xpath_full + OU_HOME_ODD_REL_PATH
                 away_odd_xpath = betano_row_xpath_full + OU_AWAY_ODD_REL_PATH
                 
@@ -317,15 +311,10 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
                 
                 if close_home and close_away and close_home != 'N/A' and close_away != 'N/A':
                     
-                    # ACȚIUNE 3: CLICK PE COTE PENTRU COTE DE DESCHIDERE
                     open_home = get_opening_odd_from_click(driver, home_odd_xpath)
                     time.sleep(0.5)
                     open_away = get_opening_odd_from_click(driver, away_odd_xpath)
 
-                    # Extrage Linia
-                    line_raw_text = ffi(line_row_element, By.XPATH, LINE_REL_PATH)
-                    line = line_raw_text.strip() if line_raw_text else 'N/A'
-                    
                     data = {
                         'Line': line,
                         'Home_Over_Close': close_home,
@@ -343,7 +332,6 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
             except NoSuchElementException:
                 pass 
             
-            # Închide rândul liniei
             driver.execute_script("arguments[0].click();", line_row_element)
             time.sleep(0.5) 
 
