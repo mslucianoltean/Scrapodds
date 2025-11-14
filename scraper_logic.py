@@ -1,4 +1,4 @@
-# scraper_logic.py (VERSIUNEA FINALĂ - CU LOGICA PE DOUĂ NIVELURI)
+# scraper_logic.py (VERSIUNEA FINALĂ ȘI COMPLETĂ - CU LOGICĂ TRIPLU-CLICK)
 
 import os
 import time
@@ -20,23 +20,20 @@ TARGET_BOOKMAKER = "Betano"
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
-# 🛠️ FUNCȚII AJUTĂTOARE SELENIUM (Păstrăm cele mai stabile)
+# 🛠️ FUNCȚII AJUTĂTOARE SELENIUM (Stabile)
 # ------------------------------------------------------------------------------
 
 def find_element(driver, by_method, locator):
-    """Găsește un element sau returnează None/False."""
     try:
         return driver.find_element(by_method, locator)
     except NoSuchElementException:
         return None
 
 def ffi(driver, xpath):
-    """Returnează textul elementului de la xpath dacă există."""
     element = find_element(driver, By.XPATH, xpath)
     return element.text.strip() if element else None
 
 def ffi2(driver, xpath):
-    """Dă click pe elementul de la xpath dacă există (folosind JS)."""
     element = find_element(driver, By.XPATH, xpath)
     if element:
         driver.execute_script("arguments[0].click();", element)
@@ -47,7 +44,7 @@ def get_bookmaker_name_from_row(row_element):
     """Căută textul bookmaker-ului în interiorul rândului extins."""
     try:
         # Căutăm elementul care conține textul "Betano"
-        bookmaker_name_element = row_element.find_element(By.XPATH, f'.//*[contains(text(), "{TARGET_BOOKMAKER}")]')
+        bookmaker_name_element = row_element.find_element(By.XPATH, f'.//a[contains(text(), "{TARGET_BOOKMAKER}")]')
         return bookmaker_name_element.text.strip()
     except NoSuchElementException:
         return None
@@ -57,19 +54,21 @@ def fffi(driver, xpath):
     return ffi(driver, xpath) 
 
 def get_opening_odd_from_click(driver, element_to_click_xpath):
-    """Simulează click pe cota de închidere Over, așteaptă popup-ul și extrage cota de deschidere."""
+    """Simulează click pe cota de închidere, așteaptă popup-ul și extrage cota de deschidere."""
     
     if not ffi2(driver, element_to_click_xpath):
-        return 'Eroare: Elementul de cotă Over nu a putut fi apăsat'
+        return 'Eroare: Cota Close nu a putut fi apăsată'
 
     try:
         time.sleep(0.5) 
         
-        # XPath-ul OddsPortal pentru cota de deschidere (din pop-up)
-        popup_xpath = '//*[@id="tooltip_v"]//div[contains(text(), "Opening")]/following-sibling::div'
+        # XPath-ul pentru cota de deschidere din pop-up
+        # Vizează <p class="odds-text"> care se află în div[2] (presupunând că div[1] este Close)
+        # Ne bazăm pe structura obișnuită a pop-up-ului oddsportal: //*[@id="tooltip_v"]//div[2]/p
+        popup_open_odd_xpath = '//*[@id="tooltip_v"]//div[2]/p[contains(@class, "odds-text")]'
         
         wait = WebDriverWait(driver, 5) 
-        opening_odd_element = wait.until(EC.presence_of_element_located((By.XPATH, popup_xpath)))
+        opening_odd_element = wait.until(EC.presence_of_element_located((By.XPATH, popup_open_odd_xpath)))
         
         opening_odd_text = opening_odd_element.text.strip()
         
@@ -123,10 +122,14 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         base_rows_xpath = '/html/body/div[1]/div[1]/div[1]/div/main/div[4]/div[2]/div[2]/div[2]'
         
         # Cale relativă a cotelor (din interiorul rândului Betano, care este un sub-element)
-        # Am dedus aceste căi folosind XPath-ul complex dat de dvs.
-        BETANO_ROW_REL_PATH = '//div[contains(@class, "table-main__row--details")]/div[1]/div[2]' 
-        OU_HOME_ODD_REL_PATH = '/div[2]' # Over (Cota de închidere)
-        OU_AWAY_ODD_REL_PATH = '/div[3]' # Under (Cota de închidere)
+        # bazat pe: /div[2]/div[1]/div[2]/div[3]/div/div/p
+        OU_HOME_ODD_REL_PATH = '/div[3]/div/div/p' # Over/Home Close (Click)
+        OU_AWAY_ODD_REL_PATH = '/div[4]/div/div/p' # Under/Away Close (Click)
+        
+        # Căutăm elementul care conține numele bookmaker-ului
+        BETANO_ROW_XPATH_TEMPLATE = f'//a[contains(text(), "{TARGET_BOOKMAKER}")]/ancestor::div[contains(@class, "table-main__row--details-line")]'
+        
+        # Extrage Linia (din rândul Părinte)
         LINE_REL_PATH = '//span[contains(@class, "table-main__detail-line-more")]'
 
         # ----------------------------------------------------
@@ -167,26 +170,26 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
                 time.sleep(1) # Așteaptă extinderea
 
                 try:
-                    # ACȚIUNE 2: Căutăm rândul Betano în interiorul rândului Liniei
-                    # Folosim o căutare relativă complexă
-                    betano_row_xpath = f'{line_row_xpath}//a[contains(@class, "table-main__row-content-link") and contains(text(), "{TARGET_BOOKMAKER}")]/ancestor::div[contains(@class, "table-main__row--details-line")]'
-                    betano_row_element = driver.find_element(By.XPATH, betano_row_xpath)
+                    # ACȚIUNE 2: Găsim rândul Betano în interiorul rândului Liniei
+                    # Căutăm relativ la rândul liniei
+                    betano_row_xpath_full = f'{line_row_xpath}{BETANO_ROW_XPATH_TEMPLATE}'
+                    betano_row_element = driver.find_element(By.XPATH, betano_row_xpath_full)
                     
-                    # Rândul Betano a fost găsit. Extragem datele.
                     bm_name = get_bookmaker_name_from_row(betano_row_element)
 
-                    # Cotele de închidere (relative la rândul Betano)
-                    home_odd_xpath = betano_row_xpath + OU_HOME_ODD_REL_PATH
-                    away_odd_xpath = betano_row_xpath + OU_AWAY_ODD_REL_PATH
+                    # Cotele de închidere XPath-uri complete
+                    home_odd_xpath = betano_row_xpath_full + OU_HOME_ODD_REL_PATH
+                    away_odd_xpath = betano_row_xpath_full + OU_AWAY_ODD_REL_PATH
                     
-                    close_home = fffi(driver, home_odd_xpath) # Cota Over (Închidere)
-                    close_away = fffi(driver, away_odd_xpath) # Cota Under (Închidere)
+                    close_home = fffi(driver, home_odd_xpath) 
+                    close_away = fffi(driver, away_odd_xpath) 
                     
                     if close_home and close_away and close_home != 'N/A' and close_away != 'N/A':
                         
-                        # ACȚIUNE 3: CLICK PE COTA OVER (ÎNCHIDERE) PENTRU A OBȚINE COTA DE DESCHIDERE
+                        # ACȚIUNE 3: CLICK PE COTE PENTRU COTE DE DESCHIDERE
                         open_home = get_opening_odd_from_click(driver, home_odd_xpath)
-                        open_away = close_away # Under Close este Under Open
+                        time.sleep(0.5)
+                        open_away = get_opening_odd_from_click(driver, away_odd_xpath)
                         
                         # Extrage Linia din rândul părinte
                         line_raw_text = ffi(driver, line_row_xpath + LINE_REL_PATH)
@@ -205,10 +208,10 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
                             break 
                             
                 except NoSuchElementException:
-                    # Nu am găsit Betano în rândul extins. Nu facem nimic.
+                    # Nu am găsit Betano în rândul extins. Continuăm la următorul rând.
                     pass 
                 
-                # Închide rândul liniei (click din nou pe el) pentru curățenie
+                # Închide rândul liniei (click din nou pe el)
                 ffi2(driver, line_row_xpath) 
                 time.sleep(0.5) 
         
@@ -244,24 +247,25 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
                 time.sleep(1) 
 
                 try:
-                    # ACȚIUNE 2: Căutăm rândul Betano în interiorul rândului Liniei
-                    betano_row_xpath = f'{line_row_xpath}//a[contains(@class, "table-main__row-content-link") and contains(text(), "{TARGET_BOOKMAKER}")]/ancestor::div[contains(@class, "table-main__row--details-line")]'
-                    betano_row_element = driver.find_element(By.XPATH, betano_row_xpath)
+                    # ACȚIUNE 2: Găsim rândul Betano în interiorul rândului Liniei
+                    betano_row_xpath_full = f'{line_row_xpath}{BETANO_ROW_XPATH_TEMPLATE}'
+                    betano_row_element = driver.find_element(By.XPATH, betano_row_xpath_full)
                     
                     bm_name = get_bookmaker_name_from_row(betano_row_element)
 
-                    # Cotele de închidere (relative la rândul Betano)
-                    home_odd_xpath = betano_row_xpath + OU_HOME_ODD_REL_PATH
-                    away_odd_xpath = betano_row_xpath + OU_AWAY_ODD_REL_PATH
+                    # Cotele de închidere
+                    home_odd_xpath = betano_row_xpath_full + OU_HOME_ODD_REL_PATH
+                    away_odd_xpath = betano_row_xpath_full + OU_AWAY_ODD_REL_PATH
                     
-                    close_home = fffi(driver, home_odd_xpath) # Cota Home (Închidere)
-                    close_away = fffi(driver, away_odd_xpath) # Cota Away (Închidere)
+                    close_home = fffi(driver, home_odd_xpath)
+                    close_away = fffi(driver, away_odd_xpath)
                     
                     if close_home and close_away and close_home != 'N/A' and close_away != 'N/A':
                         
-                        # ACȚIUNE 3: CLICK PE COTA HOME (ÎNCHIDERE) PENTRU A OBȚINE COTA DE DESCHIDERE
+                        # ACȚIUNE 3: CLICK PE COTE PENTRU COTE DE DESCHIDERE
                         open_home = get_opening_odd_from_click(driver, home_odd_xpath)
-                        open_away = close_away # Away Close este Away Open
+                        time.sleep(0.5)
+                        open_away = get_opening_odd_from_click(driver, away_odd_xpath)
 
                         # Extrage Linia
                         line_raw_text = ffi(driver, line_row_xpath + LINE_REL_PATH)
