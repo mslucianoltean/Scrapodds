@@ -1,4 +1,4 @@
-# scraper_logic.py (VERSIUNEA 8.0 - AȘTEPTARE PE BODY ȘI SCROLL FORȚAT)
+# scraper_logic.py (VERSIUNEA 10.0 - AȘTEPTARE PE NAVIGARE ȘI CLASĂ STABILĂ)
 
 import os
 import time
@@ -62,7 +62,6 @@ def get_opening_odd_from_click(driver, element_to_click_xpath):
         
         opening_odd_text = opening_odd_element.text.strip()
         
-        # Închide Popup-ul: Dăm click pe body
         ffi2(driver, '//body') 
         time.sleep(0.2) 
         
@@ -109,8 +108,8 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
     try:
         wait = WebDriverWait(driver, 30)
         
-        # Element de așteptare generic: header-ul paginii care conține meciul (relativ stabil)
-        LOADING_WAIT_XPATH = '//div[contains(@class, "flex-wrap")]/h1[1]' 
+        # Element de așteptare: Containerul de Navigare al Categoriilor de Pariuri (din codul HTML furnizat)
+        NAVIGATION_WAIT_XPATH = '//div[contains(@data-testid, "bet-types-nav")]' 
         
         # Căi relative (din interiorul rândului Betano) - vizează direct <p>
         OU_HOME_ODD_REL_PATH = '/div[3]/div/div/p' 
@@ -122,37 +121,30 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         # Extrage Linia (din rândul Părinte)
         LINE_REL_PATH = './/span[contains(@class, "table-main__detail-line-more")]'
         
-        # Căutăm toate rândurile de linii de cote
+        # Căutăm toate rândurile de linii de cote (Acest element trebuie să apară după încărcarea datelor)
         LINE_ROWS_XPATH = '//div[contains(@data-testid, "table-main-row")]'
 
         # ----------------------------------------------------
         # ETAPA 1: Extrage cotele Over/Under
         # ----------------------------------------------------
         driver.get(ou_link)
-        time.sleep(2) 
         
-        # --- HANDLE POPUP/COOKIES ---
+        # ACȚIUNE 1: Așteptăm Navigarea și Apoi Tab-ul Over/Under
         try:
-            cookie_accept_xpath = '//*[@id="onetrust-accept-btn-handler"]'
-            cookie_accept_button = find_element(driver, By.XPATH, cookie_accept_xpath)
-            if cookie_accept_button:
-                driver.execute_script("arguments[0].click();", cookie_accept_button)
-                time.sleep(1)
-        except Exception:
-            pass
-        # ----------------------------
-        
-        # ACȚIUNE 1: Așteptăm un element cheie al antetului și dăm scroll
-        try:
-            wait.until(EC.visibility_of_element_located((By.XPATH, LOADING_WAIT_XPATH)))
-            # Scroll forțat pentru a randa conținutul dinamic din partea de jos
-            driver.execute_script("window.scrollTo(0, 500);")
-            time.sleep(1) 
-            driver.execute_script("window.scrollTo(0, 0);")
-            time.sleep(1) 
-
+            wait.until(EC.presence_of_element_located((By.XPATH, '//body')))
+            driver.refresh()
+            time.sleep(2) 
+            # Așteptăm elementul stabil de navigare
+            wait.until(EC.visibility_of_element_located((By.XPATH, NAVIGATION_WAIT_XPATH)))
+            
+            # Clic pe tab-ul Over/Under (Doar pentru siguranță, deși URL-ul ar trebui să-l activeze)
+            ou_tab_xpath = "//ul[contains(@class, 'hidden-links')]//li[span[div[text()='Over/Under']]]"
+            ffi2(driver, ou_tab_xpath)
+            
+            # Așteptăm ca prima linie de cote să fie vizibilă
+            wait.until(EC.visibility_of_element_located((By.XPATH, LINE_ROWS_XPATH)))
         except:
-            results['Error'] = f"Eroare la încărcarea paginii Over/Under (Antetul '{LOADING_WAIT_XPATH}' nu a fost găsit în 30s)."
+            results['Error'] = f"Eroare la încărcarea paginii Over/Under (Elementul stabil '{NAVIGATION_WAIT_XPATH}' sau o linie de cote nu a fost găsită în 30s)."
             driver.quit()
             return dict(results)
         
@@ -167,17 +159,17 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
             
             # ACȚIUNE 2: DĂM CLICK PE RÂNDUL LINIEI PENTRU A DESCHIDE BOOKMAKERII
             driver.execute_script("arguments[0].click();", line_row_element)
-            time.sleep(1.5) # Timp de așteptare mai lung pentru expandarea rândului
+            time.sleep(1.5) 
 
             try:
-                # ACȚIUNE 3: Găsim rândul Betano pe baza Link-ului, relativ la rândul liniei curente
+                # ACȚIUNE 3: Găsim rândul Betano pe baza Link-ului
                 betano_row_element = line_row_element.find_element(By.XPATH, BETANO_ROW_REL_XPATH)
                 
                 # Extragem numele (pentru afișare)
                 bm_name_element = betano_row_element.find_element(By.XPATH, f'.//p[contains(text(), "Betano")]')
                 bm_name = bm_name_element.text.strip() if bm_name_element else "Betano.ro"
 
-                # Extragem XPath-ul absolut al rândului Betano (mai sigur pentru click-uri)
+                # Extragem XPath-ul absolut al rândului Betano (pentru a construi cotele)
                 betano_row_xpath_full = driver.execute_script("""
                     var element = arguments[0]; 
                     var xpath = ''; 
@@ -249,16 +241,24 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         # ----------------------------------------------------
         
         driver.get(ah_link)
-        time.sleep(2)
         
+        # ACȚIUNE 1: Așteptăm body-ul și dăm refresh forțat
         try:
-            wait.until(EC.visibility_of_element_located((By.XPATH, LOADING_WAIT_XPATH)))
-            driver.execute_script("window.scrollTo(0, 500);")
-            time.sleep(1) 
-            driver.execute_script("window.scrollTo(0, 0);")
-            time.sleep(1) 
+            wait.until(EC.presence_of_element_located((By.XPATH, '//body')))
+            driver.refresh()
+            time.sleep(2) 
+            # Așteptăm elementul stabil de navigare
+            wait.until(EC.visibility_of_element_located((By.XPATH, NAVIGATION_WAIT_XPATH)))
+            
+            # Clic pe tab-ul Asian Handicap
+            ah_tab_xpath = "//ul[contains(@class, 'hidden-links')]//li[span[div[text()='Asian Handicap']]]"
+            ffi2(driver, ah_tab_xpath)
+
+            # Așteptăm ca prima linie de cote să fie vizibilă
+            wait.until(EC.visibility_of_element_located((By.XPATH, LINE_ROWS_XPATH)))
+
         except:
-            results['Error'] = f"Eroare la încărcarea paginii Asian Handicap (Antetul '{LOADING_WAIT_XPATH}' nu a fost găsit în 30s)."
+            results['Error'] = f"Eroare la încărcarea paginii Asian Handicap (Elementul stabil '{NAVIGATION_WAIT_XPATH}' sau o linie de cote nu a fost găsită în 30s)."
             driver.quit()
             return dict(results)
         
