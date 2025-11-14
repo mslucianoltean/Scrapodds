@@ -1,11 +1,10 @@
-# scraper_logic.py (VERSIUNEA FINALĂ ȘI STABILĂ)
+# scraper_logic.py (VERSIUNEA FINALĂ ȘI STABILĂ CU URL-URI DIRECTE)
 
 import os
 import time
 import re
 from collections import defaultdict
 from selenium import webdriver
-# Importuri pentru Selenium 4.x și Așteptare Explicită
 from selenium.webdriver.chrome.service import Service 
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
@@ -22,7 +21,7 @@ TYPE_ODDS = 'CLOSING'
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
-# 🛠️ FUNCȚII AJUTĂTOARE SELENIUM
+# 🛠️ FUNCȚII AJUTĂTOARE SELENIUM (Neschimbate)
 # ------------------------------------------------------------------------------
 
 def find_element(driver, by_method, locator):
@@ -108,13 +107,12 @@ def extract_odds_for_line(driver, row_xpath, home_col, away_col):
     }
 
 # ------------------------------------------------------------------------------
-# 🚀 FUNCȚIA PRINCIPALĂ DE SCRAPING
+# 🚀 FUNCȚIA PRINCIPALĂ DE SCRAPING (ACCEPTEAZĂ DOUĂ LINK-URI)
 # ------------------------------------------------------------------------------
 
-def scrape_basketball_match_full_data_filtered(link):
+def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
     """
-    Scrapează toate liniile de Over/Under și Handicap pentru un singur meci,
-    filtrând pentru TARGET_BOOKMAKER, folosind driver Headless.
+    Scrapează liniile de Over/Under și Handicap din link-uri directe (ou_link și ah_link).
     """
     
     global TARGET_BOOKMAKER 
@@ -122,7 +120,7 @@ def scrape_basketball_match_full_data_filtered(link):
     results = defaultdict(dict)
     driver = None 
 
-    # --- Configurare Headless și căi (Selenium 4.x) ---
+    # --- Inițializare driver (Sintaxa corectată Selenium 4.x) ---
     chrome_options = Options()
     chrome_options.add_argument("--headless")
     chrome_options.add_argument("--no-sandbox")
@@ -133,7 +131,6 @@ def scrape_basketball_match_full_data_filtered(link):
     chromedriver_path = os.environ.get("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
 
     try:
-        # Corecție: Folosim Service() pentru a inițializa driverul
         service = Service(chromedriver_path)
         driver = webdriver.Chrome(service=service, options=chrome_options)
         
@@ -143,72 +140,70 @@ def scrape_basketball_match_full_data_filtered(link):
 
     # Incepe scraping-ul
     try:
-        driver.get(link)
-        
-        # ----------------------------------------------------
-        # CORECȚIA CRITICĂ: Așteptare Explicită pentru Titlu (h1)
-        # ----------------------------------------------------
+        # --- Așteptare explicită ---
         wait = WebDriverWait(driver, 20)
         
-        # XPath robust pentru titlul meciului (h1)
-        match_title_xpath = '//*[@id="col-content"]/h1'
+        # ----------------------------------------------------
+        # ETAPA 1: Extrage cotele Over/Under (folosind link-ul direct)
+        # ----------------------------------------------------
+        driver.get(ou_link)
         
-        # Așteptăm ca elementul să fie prezent și vizibil
+        # Așteptăm ca titlul paginii să fie vizibil
+        match_title_xpath = '//*[@id="col-content"]/h1'
         wait.until(EC.visibility_of_element_located((By.XPATH, match_title_xpath)))
         
-        # Extrage titlul meciului (care acum este garantat că există)
         results['Match'] = ffi(driver, match_title_xpath)
         
-        # Fără acest titlu, nu putem continua
         if not results['Match']:
-            results['Error'] = "Eroare de extracție: Elementul titlu (h1) a fost găsit dar este gol."
+            results['Error'] = "Eroare de extracție: Titlul meciului nu a putut fi extras din primul link."
             driver.quit()
             return dict(results)
         
-        # --- Extrage cotele Over/Under (Total) ---
-        # XPath specificat: li[3]
-        total_tab_xpath = '/html/body/div[1]/div[1]/div[1]/div/main/div[4]/div[2]/div[2]/div[1]/div[1]/ul/li[3]/a/div'
+        # Așteptăm ca tabela de cote să fie încărcată
+        wait.until(EC.visibility_of_element_located((By.XPATH, '//*[@id="odds-data-table"]')))
+        
         ou_lines = []
+        time.sleep(3) # Pauză suplimentară pentru a aștepta încărcarea cotelor (Hover-ul necesită stabilitate)
         
-        time.sleep(1) # Pauză scurtă după încărcarea principală
-        
-        if ffi2(driver, total_tab_xpath):
-            time.sleep(2) 
-            for j in range(1, 101):
-                row_xpath = f'//*[@id="odds-data-table"]/div[1]/table/tbody/tr[{j}]'
-                bm_name = get_bookmaker_name(driver, row_xpath)
-                
-                if bm_name and TARGET_BOOKMAKER in bm_name:
-                    data = extract_odds_for_line(driver, row_xpath, home_col=2, away_col=3) 
-                    if data and data['Line'] != 'N/A':
-                        data['Bookmaker'] = bm_name 
-                        ou_lines.append(data)
-                if ffi(driver, row_xpath) is None and j > 5: break
-            results['Over_Under_Lines'] = ou_lines
-        else:
-            results['Error_Over_Under'] = "Nu s-a putut găsi tab-ul 'Total' (XPath li[3] invalid)."
+        # Extrage liniile OU
+        for j in range(1, 101):
+            row_xpath = f'//*[@id="odds-data-table"]/div[1]/table/tbody/tr[{j}]'
+            bm_name = get_bookmaker_name(driver, row_xpath)
+            
+            if bm_name and TARGET_BOOKMAKER in bm_name:
+                data = extract_odds_for_line(driver, row_xpath, home_col=2, away_col=3) 
+                if data and data['Line'] != 'N/A':
+                    data['Bookmaker'] = bm_name 
+                    ou_lines.append(data)
+            if ffi(driver, row_xpath) is None and j > 5: break
+        results['Over_Under_Lines'] = ou_lines
 
-        # --- Extrage cotele Handicap (Asian Handicap) ---
-        # XPath specificat: li[5]
-        handicap_tab_xpath = '/html/body/div[1]/div[1]/div[1]/div/main/div[4]/div[2]/div[2]/div[1]/div[1]/ul/li[5]'
+        # ----------------------------------------------------
+        # ETAPA 2: Extrage cotele Handicap (folosind link-ul direct)
+        # ----------------------------------------------------
+        driver.get(ah_link)
+        
+        # Așteptăm din nou ca tabela de cote să se încarce
+        wait.until(EC.visibility_of_element_located((By.XPATH, '//*[@id="odds-data-table"]')))
+        
         handicap_lines = []
-        if ffi2(driver, handicap_tab_xpath):
-            time.sleep(2) 
-            for j in range(1, 101):
-                row_xpath = f'//*[@id="odds-data-table"]/div[1]/table/tbody/tr[{j}]'
-                bm_name = get_bookmaker_name(driver, row_xpath)
-                
-                if bm_name and TARGET_BOOKMAKER in bm_name:
-                    data = extract_odds_for_line(driver, row_xpath, home_col=2, away_col=3) 
-                    if data and data['Line'] != 'N/A':
-                        data['Bookmaker'] = bm_name 
-                        handicap_lines.append(data)
-                if ffi(driver, row_xpath) is None and j > 5: break
-            results['Handicap_Lines'] = handicap_lines
-        else:
-            results['Error_Handicap'] = "Nu s-a putut găsi tab-ul 'Asian Handicap' (XPath li[5] invalid)."
+        time.sleep(3) # Pauză suplimentară
+
+        # Extrage liniile AH
+        for j in range(1, 101):
+            row_xpath = f'//*[@id="odds-data-table"]/div[1]/table/tbody/tr[{j}]'
+            bm_name = get_bookmaker_name(driver, row_xpath)
+            
+            if bm_name and TARGET_BOOKMAKER in bm_name:
+                data = extract_odds_for_line(driver, row_xpath, home_col=2, away_col=3) 
+                if data and data['Line'] != 'N/A':
+                    data['Bookmaker'] = bm_name 
+                    handicap_lines.append(data)
+            if ffi(driver, row_xpath) is None and j > 5: break
+        results['Handicap_Lines'] = handicap_lines
             
     except Exception as e:
+        # Afișăm eroarea generică, dar știm că acum este mai probabil o problemă de Xpath în interior
         results['Runtime_Error'] = f"A apărut o eroare neașteptată în timpul scraping-ului: {e}"
     
     finally:
