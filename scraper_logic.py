@@ -1,214 +1,215 @@
-def scrape_via_direct_urls(ou_link, ah_link):
-    import requests
-    import re
-    from selenium import webdriver
-    from selenium.webdriver.chrome.service import Service
-    from selenium.webdriver.chrome.options import Options
-    from selenium.webdriver.common.by import By  # ADAUGAT IMPORT
-    import os
-    import time
+import requests
+from bs4 import BeautifulSoup
+import re
+import json
+import time
+
+def scrape_oddsportal_complete(ou_link, ah_link):
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    }
     
-    results = {'Match': 'Scraping via URL-uri directe'}
+    results = {
+        'Match': 'Scraping complet OddsPortal',
+        'Over_Under_Lines': [],
+        'Handicap_Lines': []
+    }
     
-    chrome_options = Options()
-    chrome_options.add_argument("--headless")
-    chrome_options.add_argument("--window-size=1920,1080")
-    
-    chrome_options.binary_location = os.environ.get("GOOGLE_CHROME_BIN", "/usr/bin/chromium")
-    chromedriver_path = os.environ.get("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
+    def extract_betano_odds_from_url(url, market_type='ou'):
+        """Extrage cotele Betano dintr-un URL direct"""
+        try:
+            print(f"  Accesez URL pentru cote: {url}")
+            response = requests.get(url, headers=headers)
+            soup = BeautifulSoup(response.content, 'html.parser')
+            
+            # Găsim rândul Betano - mai multe încercări
+            betano_row = None
+            
+            # Încercă 1: Caută link Betano și merge la parent tr
+            betano_links = soup.find_all('a', href=re.compile(r'betano', re.IGNORECASE))
+            for link in betano_links:
+                parent_tr = link.find_parent('tr')
+                if parent_tr:
+                    betano_row = parent_tr
+                    break
+            
+            # Încercă 2: Caută direct în tabele
+            if not betano_row:
+                all_rows = soup.find_all('tr')
+                for row in all_rows:
+                    if 'betano' in row.text.lower():
+                        betano_row = row
+                        break
+            
+            if betano_row:
+                print(f"  ✅ Rand Betano gasit!")
+                
+                # Extragem cotele "line-through" pentru Over/Under
+                odds_elements = betano_row.find_all('p', class_='odds-text line-through')
+                
+                if market_type == 'ou':
+                    # Over/Under - primele 2 cote
+                    over_close = odds_elements[0].get_text(strip=True) if len(odds_elements) > 0 else 'N/A'
+                    under_close = odds_elements[1].get_text(strip=True) if len(odds_elements) > 1 else 'N/A'
+                    return over_close, under_close
+                
+                elif market_type == 'ah':
+                    # Asian Handicap - primele 2 cote (Home/Away)
+                    home_close = odds_elements[0].get_text(strip=True) if len(odds_elements) > 0 else 'N/A'
+                    away_close = odds_elements[1].get_text(strip=True) if len(odds_elements) > 1 else 'N/A'
+                    return home_close, away_close
+            
+            print(f"  ❌ Rand Betano negasit")
+            return 'N/A', 'N/A'
+            
+        except Exception as e:
+            print(f"  ❌ Eroare extragere cote: {e}")
+            return 'N/A', 'N/A'
     
     try:
-        service = Service(chromedriver_path)
-        driver = webdriver.Chrome(service=service, options=chrome_options)
+        # ===================================================
+        # OVER/UNDER - EXTRAGERE LINII ȘI COTE
+        # ===================================================
+        print("=== OVER/UNDER - EXTRAGERE LINII ===")
+        response = requests.get(ou_link, headers=headers)
+        soup = BeautifulSoup(response.content, 'html.parser')
         
-        # ----------------------------------------------------
-        # OVER/UNDER - EXTRAGEM LINIILE ȘI CONSTRUIM URL-URI
-        # ----------------------------------------------------
-        print("=== OVER/UNDER - URL-URI DIRECTE ===")
-        driver.get(ou_link)
-        time.sleep(5)
+        # Găsim containerul cu toate liniile
+        lines_container = soup.select_one('div.min-md\\:px-\\[10px\\]')
         
-        # 1. CLICK PE TAB OVER/UNDER (doar pentru a vedea liniile)
-        try:
-            ou_tab = driver.find_element(By.XPATH, "//div[text()='Over/Under']")
-            driver.execute_script("arguments[0].click();", ou_tab)
-            print("✓ Click pe tab Over/Under")
-            time.sleep(3)
-        except:
-            print("✗ Tab Over/Under nu a putut fi apăsat")
-        
-        # 2. EXTRAGE TOATE VALORILE LINIILOR
         ou_lines = []
-        line_containers = driver.find_elements(By.XPATH, "//div[contains(@class, 'min-md:px-[10px]')]/div")
-        print(f"Containere linii găsite: {len(line_containers)}")
-        
-        line_values = []
-        for container in line_containers[:10]:  # Primele 10 linii
-            try:
-                text_elements = container.find_elements(By.XPATH, ".//div[contains(@class, 'font-bold text-[#2F2F2F]')]")
-                if not text_elements:
-                    continue
+        if lines_container:
+            # Extragem toate liniile Over/Under
+            line_elements = lines_container.find_all('p', string=re.compile(r'Over/Under'))
+            print(f"Linii Over/Under găsite: {len(line_elements)}")
+            
+            for i, element in enumerate(line_elements[:15]):  # Primele 15 linii
+                try:
+                    line_text = element.get_text(strip=True)
+                    print(f"\n--- Linia {i+1}: {line_text} ---")
                     
-                line_text = text_elements[0].text
-                if "Over/Under" in line_text:
-                    # Extrage valoarea liniei (ex: +218.5)
-                    line_match = re.search(r'Over/Under\s*([+-]?\d+\.?\d*)', line_text)
+                    # Extragem doar numărul (ex: 260.5 din "Over/Under +260.5")
+                    line_match = re.search(r'Over/Under\s*\+?(\d+\.?\d*)', line_text)
                     if line_match:
-                        line_value = line_match.group(1)
-                        line_values.append(line_value)
-                        print(f"✓ Linie găsită: {line_value}")
-            except:
-                continue
-        
-        print(f"Total valori linii extrase: {len(line_values)}")
-        
-        # 3. CONSTRUIEȘTE URL-URI DIRECTE PENTRU FIECARE LINIE
-        base_url = ou_link.split('#')[0]  # https://www.oddsportal.com/basketball/usa/nba/cleveland-cavaliers-toronto-raptors-xYgsQpLr/
-        
-        for i, line_value in enumerate(line_values[:3]):  # Testează primele 3 linii
-            try:
-                # Construiește URL-ul direct pentru linie
-                # Format: #over-under;1;218.50;0
-                direct_url = f"{base_url}#over-under;1;{line_value.replace('+', '').replace('-', '')};0"
-                print(f"URL direct linie {i+1}: {direct_url}")
-                
-                # Accesează URL-ul direct
-                driver.get(direct_url)
-                time.sleep(5)
-                
-                # VERIFICĂ DACA BETANO APARE
-                betano_elements = driver.find_elements(By.XPATH, "//a[contains(@href, 'betano')]")  # MODIFICAT selector
-                print(f"  Elemente Betano după URL direct: {len(betano_elements)}")
-                
-                if betano_elements:
-                    print(f"  ✅ BETANO GĂSIT la linia {line_value}!")
-                    
-                    # GĂSEȘTE RÂNDUL BETANO
-                    betano_row = driver.find_element(By.XPATH, "//tr[.//a[contains(@href, 'betano')]]")
-                    
-                    # EXTRAge COTELE OVER CLOSE și UNDER CLOSE (line-through)
-                    over_close_elements = betano_row.find_elements(By.XPATH, ".//p[@class='odds-text line-through']")
-                    under_close_elements = betano_row.find_elements(By.XPATH, ".//p[@class='odds-text line-through']")
-                    
-                    over_close = over_close_elements[0].text if len(over_close_elements) > 0 else "N/A"
-                    under_close = under_close_elements[1].text if len(under_close_elements) > 1 else "N/A"
-                    
-                    print(f"  ✅ Cote găsite: Over Close={over_close}, Under Close={under_close}")
-                    
-                    ou_lines.append({
-                        'Line': line_value,
-                        'Over_Close': over_close,
-                        'Over_Open': 'N/A',
-                        'Under_Close': under_close,
-                        'Under_Open': 'N/A',
-                        'Bookmaker': 'Betano.ro',
-                        'Direct_URL': direct_url
-                    })
-                else:
-                    print(f"  ❌ BETANO NU a fost găsit pentru linia {line_value}")
-                
-            except Exception as e:
-                print(f"✗ Eroare la linia {line_value}: {e}")
+                        line_value = line_match.group(1)  # "260.5"
+                        display_line = f"+{line_value}"  # păstrăm + pentru afișare
+                        print(f"✓ Valoare linie: {display_line}")
+                        
+                        # Construim URL-ul
+                        base_url = ou_link.split('#')[0]
+                        direct_url = f"{base_url}#over-under;1;{line_value};0"
+                        print(f"✓ URL construit: {direct_url}")
+                        
+                        # Extragem cotele Betano
+                        over_close, under_close = extract_betano_odds_from_url(direct_url, 'ou')
+                        print(f"✓ Cote gasite: Over={over_close}, Under={under_close}")
+                        
+                        # Salvăm rezultatul
+                        ou_lines.append({
+                            'Line': display_line,
+                            'Direct_URL': direct_url,
+                            'Over_Close': over_close,
+                            'Under_Close': under_close,
+                            'Bookmaker': 'Betano.ro'
+                        })
+                        
+                        # Pauză mică între request-uri
+                        time.sleep(1)
+                        
+                except Exception as e:
+                    print(f"✗ Eroare la linia {i+1}: {e}")
+                    continue
         
         results['Over_Under_Lines'] = ou_lines
         
-        # ----------------------------------------------------
-        # ASIAN HANDICAP - ACEAȘI LOGICĂ (corectat similar)
-        # ----------------------------------------------------
-        print("=== ASIAN HANDICAP - URL-URI DIRECTE ===")
-        driver.get(ah_link)
-        time.sleep(5)
+        # ===================================================
+        # ASIAN HANDICAP - EXTRAGERE LINII ȘI COTE
+        # ===================================================
+        print("\n\n=== ASIAN HANDICAP - EXTRAGERE LINII ===")
+        response_ah = requests.get(ah_link, headers=headers)
+        soup_ah = BeautifulSoup(response_ah.content, 'html.parser')
         
-        try:
-            ah_tab = driver.find_element(By.XPATH, "//div[text()='Asian Handicap']")
-            driver.execute_script("arguments[0].click();", ah_tab)
-            print("✓ Click pe tab Asian Handicap")
-            time.sleep(3)
-        except:
-            print("✗ Tab Asian Handicap nu a putut fi apăsat")
-        
+        ah_container = soup_ah.select_one('div.min-md\\:px-\\[10px\\]')
         ah_lines = []
-        ah_line_containers = driver.find_elements(By.XPATH, "//div[contains(@class, 'min-md:px-[10px]')]/div")
         
-        ah_line_values = []
-        for container in ah_line_containers[:10]:
-            try:
-                text_elements = container.find_elements(By.XPATH, ".//div[contains(@class, 'font-bold text-[#2F2F2F]')]")
-                if not text_elements:
-                    continue
+        if ah_container:
+            # Extragem toate liniile Asian Handicap
+            ah_elements = ah_container.find_all('p', string=re.compile(r'Asian Handicap'))
+            print(f"Linii Asian Handicap găsite: {len(ah_elements)}")
+            
+            for i, element in enumerate(ah_elements[:15]):  # Primele 15 linii
+                try:
+                    line_text = element.get_text(strip=True)
+                    print(f"\n--- Linia AH {i+1}: {line_text} ---")
                     
-                line_text = text_elements[0].text
-                if "Asian Handicap" in line_text:
+                    # Extragem linia cu + sau -
                     line_match = re.search(r'Asian Handicap\s*([+-]?\d+\.?\d*)', line_text)
                     if line_match:
-                        line_value = line_match.group(1)
-                        ah_line_values.append(line_value)
-                        print(f"✓ Linie AH găsită: {line_value}")
-            except:
-                continue
-        
-        # Construiește URL-uri pentru AH
-        ah_base_url = ah_link.split('#')[0]
-        
-        for i, line_value in enumerate(ah_line_values[:3]):
-            try:
-                # Format pentru AH: #ah;1;-5.50;0
-                direct_ah_url = f"{ah_base_url}#ah;1;{line_value.replace('+', '').replace('-', '')};0"
-                print(f"URL direct AH linie {i+1}: {direct_ah_url}")
-                
-                driver.get(direct_ah_url)
-                time.sleep(5)
-                
-                betano_elements = driver.find_elements(By.XPATH, "//a[contains(@href, 'betano')]")  # MODIFICAT selector
-                print(f"  Elemente Betano AH: {len(betano_elements)}")
-                
-                if betano_elements:
-                    print(f"  ✅ BETANO GĂSIT la AH linia {line_value}!")
-                    
-                    # GĂSEȘTE RÂNDUL BETANO PENTRU AH
-                    betano_row_ah = driver.find_element(By.XPATH, "//tr[.//a[contains(@href, 'betano')]]")
-                    
-                    # EXTRAge COTELE HOME CLOSE și AWAY CLOSE
-                    home_close_elements = betano_row_ah.find_elements(By.XPATH, ".//p[@class='odds-text line-through']")
-                    away_close_elements = betano_row_ah.find_elements(By.XPATH, ".//p[@class='odds-text line-through']")
-                    
-                    home_close = home_close_elements[0].text if len(home_close_elements) > 0 else "N/A"
-                    away_close = away_close_elements[1].text if len(away_close_elements) > 1 else "N/A"
-                    
-                    print(f"  ✅ Cote AH găsite: Home={home_close}, Away={away_close}")
-                    
-                    ah_lines.append({
-                        'Line': line_value,
-                        'Home_Close': home_close,
-                        'Home_Open': 'N/A',
-                        'Away_Close': away_close,
-                        'Away_Open': 'N/A',
-                        'Bookmaker': 'Betano.ro',
-                        'Direct_URL': direct_ah_url
-                    })
-                else:
-                    print(f"  ❌ BETANO NU a fost găsit pentru AH linia {line_value}")
-                
-            except Exception as e:
-                print(f"✗ Eroare la AH linia {line_value}: {e}")
+                        line_value = line_match.group(1)  # păstrăm +/-
+                        clean_line = line_value.replace('+', '').replace('-', '')  # curățăm pentru URL
+                        print(f"✓ Valoare linie AH: {line_value}")
+                        
+                        # Construim URL-ul
+                        base_url_ah = ah_link.split('#')[0]
+                        direct_ah_url = f"{base_url_ah}#ah;1;{clean_line};0"
+                        print(f"✓ URL AH construit: {direct_ah_url}")
+                        
+                        # Extragem cotele Betano
+                        home_close, away_close = extract_betano_odds_from_url(direct_ah_url, 'ah')
+                        print(f"✓ Cote AH gasite: Home={home_close}, Away={away_close}")
+                        
+                        # Salvăm rezultatul
+                        ah_lines.append({
+                            'Line': line_value,
+                            'Direct_URL': direct_ah_url,
+                            'Home_Close': home_close,
+                            'Away_Close': away_close,
+                            'Bookmaker': 'Betano.ro'
+                        })
+                        
+                        # Pauză mică între request-uri
+                        time.sleep(1)
+                        
+                except Exception as e:
+                    print(f"✗ Eroare la linia AH {i+1}: {e}")
+                    continue
         
         results['Handicap_Lines'] = ah_lines
         
+        # ===================================================
+        # REZULTATE FINALE
+        # ===================================================
+        print(f"\n\n=== REZULTATE FINALE ===")
+        print(f"Over/Under lines gasite: {len(ou_lines)}")
+        print(f"Asian Handicap lines gasite: {len(ah_lines)}")
+        
+        # Debug info
         results['Debug'] = {
             'ou_lines_found': len(ou_lines),
             'ah_lines_found': len(ah_lines),
-            'ou_line_values': line_values[:5],
-            'ah_line_values': ah_line_values[:5]
+            'strategy': 'Parsing rapid cu BeautifulSoup',
+            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S')
         }
         
     except Exception as e:
-        results['Error'] = f"Eroare URL-uri directe: {str(e)}"
-    finally:
-        if 'driver' in locals():
-            driver.quit()
+        results['Error'] = f"Eroare generala: {str(e)}"
+        print(f"❌ Eroare generala: {e}")
     
     return results
 
-# FOLOSEȘTE ACEST COD! 
+# Funcția principală pentru Streamlit
 def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
-    return scrape_via_direct_urls(ou_link, ah_link)
+    return scrape_oddsportal_complete(ou_link, ah_link)
+
+# EXEMPLU DE UTILIZARE
+if __name__ == "__main__":
+    # Testează cu link-urile tale
+    ou_url = "https://www.oddsportal.com/basketball/usa/nba/cleveland-cavaliers-toronto-raptors-xYgsQpLr/#over-under;1"
+    ah_url = "https://www.oddsportal.com/basketball/usa/nba/cleveland-cavaliers-toronto-raptors-xYgsQpLr/#ah;1"
+    
+    results = scrape_basketball_match_full_data_filtered(ou_url, ah_url)
+    
+    # Afișează rezultatele
+    print("\n" + "="*50)
+    print("REZULTATE JSON:")
+    print(json.dumps(results, indent=2, ensure_ascii=False))
