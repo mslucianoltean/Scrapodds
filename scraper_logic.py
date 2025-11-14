@@ -1,73 +1,25 @@
-# scraper_logic.py (VERSIUNEA FINALĂ CU ÎNCHIDERE POP-UP)
+# scraper_logic.py (VERSIUNEA FINALĂ CU CĂUTARE GENERALĂ RÂNDURI)
 
-import os
-import time
-import re
-from collections import defaultdict
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service 
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.action_chains import ActionChains
-from selenium.common.exceptions import NoSuchElementException
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC 
-
-# ------------------------------------------------------------------------------
-# ⚙️ CONFIGURARE
-# ------------------------------------------------------------------------------
-TARGET_BOOKMAKER = "Betano" 
-TYPE_ODDS = 'CLOSING' 
-# ------------------------------------------------------------------------------
+# ... (restul importurilor și configurației rămân neschimbate) ...
 
 # ------------------------------------------------------------------------------
 # 🛠️ FUNCȚII AJUTĂTOARE SELENIUM 
 # ------------------------------------------------------------------------------
+# ... (Funcțiile find_element, ffi, ffi2, get_opening_odd, fffi rămân neschimbate) ...
 
-def find_element(driver, by_method, locator):
-    """Găsește un element sau returnează None/False."""
-    try:
-        return driver.find_element(by_method, locator)
-    except NoSuchElementException:
-        return None
-
-def ffi(driver, xpath):
-    """Returnează textul elementului de la xpath dacă există."""
-    element = find_element(driver, By.XPATH, xpath)
-    return element.text.strip() if element else None
-
-def ffi2(driver, xpath):
-    """Dă click pe elementul de la xpath dacă există."""
-    element = find_element(driver, By.XPATH, xpath)
-    if element:
-        # Folosim JavaScript pentru a forța click-ul
-        driver.execute_script("arguments[0].click();", element)
-        return True
-    return False
-
+# AM MODIFICAT ACEASTĂ FUNCȚIE PENTRU A FOLOSI UN NUME DINTR-O POZIȚIE MAI SIMPLĂ (div[1])
 def get_bookmaker_name_from_div(driver, row_xpath):
-    """Extrage numele bookmakerului dintr-un rând bazat pe DIV."""
-    xpath = f'{row_xpath}//div[@class="table-main__row-content"]//a'
+    """Extrage numele bookmakerului dintr-un rând bazat pe DIV, căutând în prima div."""
+    # În loc să căutăm după clasă, căutăm simplu primul DIV din rând
+    xpath = f'{row_xpath}/div[1]' 
     element = find_element(driver, By.XPATH, xpath)
     return element.text.strip() if element else None
-
-# COTE DE DESCHIDERE DEZACTIVATE PENTRU STABILITATE
-def get_opening_odd(driver, xpath):
-    """DEZACTIVAT: Funcția de hover care cauzează instabilitate."""
-    return 'DEZACTIVAT (instabil)'
-
-def fffi(driver, xpath):
-    """Returnează cota de închidere (doar textul cotei)."""
-    return ffi(driver, xpath) 
 
 # ------------------------------------------------------------------------------
-# 🚀 FUNCȚIA PRINCIPALĂ DE SCRAPING (CU ÎNCHIDERE POP-UP)
+# 🚀 FUNCȚIA PRINCIPALĂ DE SCRAPING (ANCORĂ PE CONTAINER COTE)
 # ------------------------------------------------------------------------------
 
 def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
-    """
-    Scrapează liniile de Over/Under și Handicap din link-uri directe (ou_link și ah_link).
-    """
     
     global TARGET_BOOKMAKER 
     
@@ -76,6 +28,7 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
     driver = None 
 
     # --- Inițializare driver ---
+    # ... (blocul de inițializare rămâne neschimbat) ...
     chrome_options = Options()
     chrome_options.add_argument("--headless")
     chrome_options.add_argument("--no-sandbox")
@@ -108,26 +61,22 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         
         # --- HANDLE POPUP/COOKIES ---
         try:
-            # Încercare de a găsi și accepta pop-up-ul de cookie-uri OddsPortal
             cookie_accept_xpath = '//*[@id="onetrust-accept-btn-handler"]'
             cookie_accept_button = find_element(driver, By.XPATH, cookie_accept_xpath)
             if cookie_accept_button:
                 driver.execute_script("arguments[0].click();", cookie_accept_button)
-                time.sleep(1) # Pauză scurtă după click
+                time.sleep(1) 
         except Exception:
-            # Ignorăm erorile, înseamnă că pop-up-ul nu a apărut sau a fost deja acceptat
             pass
         # ----------------------------
 
         try:
-            # Așteaptă ancora generală pentru a semnala încărcarea datelor
             wait.until(EC.visibility_of_element_located((By.XPATH, general_anchor_xpath)))
         except:
             results['Error'] = "Eroare la încărcarea paginii Over/Under (Ancora generală nu a fost găsită)."
             driver.quit()
             return dict(results)
 
-        # Așteaptă containerul specific de rânduri
         wait.until(EC.visibility_of_element_located((By.XPATH, base_rows_xpath)))
         
         ou_lines = []
@@ -137,8 +86,11 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         for j in range(1, 101):
             row_container_xpath = f'{base_rows_xpath}/div[{j}]'
             
-            if not find_element(driver, By.XPATH, row_container_xpath) and j > 5: break
+            # Verificăm dacă rândul există, altfel ieșim din buclă
+            row_element = find_element(driver, By.XPATH, row_container_xpath)
+            if not row_element and j > 5: break
             
+            # NOU: Folosim funcția simplificată get_bookmaker_name_from_div
             bm_name = get_bookmaker_name_from_div(driver, row_container_xpath)
             
             if bm_name and TARGET_BOOKMAKER in bm_name:
@@ -146,6 +98,7 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
                 home_odd_xpath = f'{row_container_xpath}/div[1]' 
                 away_odd_xpath = f'{row_container_xpath}/div[2]' 
                 
+                # ... (restul logicii de extragere a cotelor rămâne neschimbată) ...
                 close_home = fffi(driver, home_odd_xpath)
                 close_away = fffi(driver, away_odd_xpath)
                 
@@ -172,7 +125,7 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         # ----------------------------------------------------
         driver.get(ah_link)
         
-        # --- HANDLE POPUP/COOKIES (Reîncărcăm pagina, deci pop-up-ul poate reapărea) ---
+        # --- HANDLE POPUP/COOKIES ---
         try:
             cookie_accept_xpath = '//*[@id="onetrust-accept-btn-handler"]'
             cookie_accept_button = find_element(driver, By.XPATH, cookie_accept_xpath)
@@ -193,7 +146,8 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         for j in range(1, 101):
             row_container_xpath = f'{base_rows_xpath}/div[{j}]'
             
-            if not find_element(driver, By.XPATH, row_container_xpath) and j > 5: break
+            row_element = find_element(driver, By.XPATH, row_container_xpath)
+            if not row_element and j > 5: break
 
             bm_name = get_bookmaker_name_from_div(driver, row_container_xpath)
             
