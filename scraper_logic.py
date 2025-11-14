@@ -1,4 +1,4 @@
-# scraper_logic.py (VERSIUNEA FINALĂ CU AȘTEPTARE MĂRITĂ LA 30S)
+# scraper_logic.py (VERSIUNEA FINALĂ CU LOGICA DE CLICK PE RÂND)
 
 import os
 import time
@@ -16,7 +16,7 @@ from selenium.webdriver.support import expected_conditions as EC
 # ------------------------------------------------------------------------------
 # ⚙️ CONFIGURARE
 # ------------------------------------------------------------------------------
-TARGET_BOOKMAKER = "Betano" 
+TARGET_BOOKMAKER = "Betano" # Filtrarea activă
 TYPE_ODDS = 'CLOSING' 
 # ------------------------------------------------------------------------------
 
@@ -40,18 +40,17 @@ def ffi2(driver, xpath):
     """Dă click pe elementul de la xpath dacă există."""
     element = find_element(driver, By.XPATH, xpath)
     if element:
-        # Folosim JavaScript pentru a forța click-ul
+        # Folosim JavaScript pentru a forța click-ul pe rând
         driver.execute_script("arguments[0].click();", element)
         return True
     return False
 
 def get_bookmaker_name_from_div(driver, row_xpath):
-    """Extrage numele bookmakerului dintr-un rând bazat pe DIV."""
+    """Extrage numele bookmakerului dintr-un rând bazat pe DIV (caută div[1])."""
     xpath = f'{row_xpath}/div[1]' 
     element = find_element(driver, By.XPATH, xpath)
     return element.text.strip() if element else None
 
-# COTE DE DESCHIDERE DEZACTIVATE PENTRU STABILITATE
 def get_opening_odd(driver, xpath):
     """DEZACTIVAT: Funcția de hover care cauzează instabilitate."""
     return 'DEZACTIVAT (instabil)'
@@ -61,13 +60,10 @@ def fffi(driver, xpath):
     return ffi(driver, xpath) 
 
 # ------------------------------------------------------------------------------
-# 🚀 FUNCȚIA PRINCIPALĂ DE SCRAPING (AȘTEPTARE MĂRITĂ)
+# 🚀 FUNCȚIA PRINCIPALĂ DE SCRAPING (CU CLICK ACTIVAT)
 # ------------------------------------------------------------------------------
 
 def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
-    """
-    Scrapează liniile de Over/Under și Handicap din link-uri directe (ou_link și ah_link).
-    """
     
     global TARGET_BOOKMAKER 
     
@@ -95,7 +91,6 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
 
     # Incepe scraping-ul
     try:
-        # Așteptare mărită la 30 de secunde
         wait = WebDriverWait(driver, 30)
         
         # Containerul de Rânduri (Base Rows)
@@ -105,7 +100,7 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         # ETAPA 1: Extrage cotele Over/Under
         # ----------------------------------------------------
         driver.get(ou_link)
-        time.sleep(2) # Pauză suplimentară imediat după navigare
+        time.sleep(2) 
         
         # --- HANDLE POPUP/COOKIES ---
         try:
@@ -119,10 +114,8 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         # ----------------------------
 
         try:
-            # Așteaptă containerul specific de rânduri (cu vizibilitate)
             wait.until(EC.visibility_of_element_located((By.XPATH, base_rows_xpath)))
         except:
-            # Mesaj de eroare actualizat
             results['Error'] = f"Eroare la încărcarea paginii Over/Under (Containerul de cote '{base_rows_xpath}' nu a fost găsit în 30s)."
             driver.quit()
             return dict(results)
@@ -139,10 +132,16 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
             
             bm_name = get_bookmaker_name_from_div(driver, row_container_xpath)
             
+            # ATENȚIE: AICI INTRĂ FILTRAREA ȘI CLICK-UL
             if bm_name and TARGET_BOOKMAKER in bm_name:
                 
-                home_odd_xpath = f'{row_container_xpath}/div[1]' 
-                away_odd_xpath = f'{row_container_xpath}/div[2]' 
+                # NOU: DĂM CLICK PE RÂND PENTRU A VEDEA COTELE DE ÎNCHIDERE
+                ffi2(driver, row_container_xpath) 
+                time.sleep(1) # Așteptăm ca datele să fie injectate
+                
+                # Presupunem că după click cotele se mută în div[2] și div[3]
+                home_odd_xpath = f'{row_container_xpath}/div[2]' # Noua poziție
+                away_odd_xpath = f'{row_container_xpath}/div[3]' # Noua poziție
                 
                 close_home = fffi(driver, home_odd_xpath)
                 close_away = fffi(driver, away_odd_xpath)
@@ -162,6 +161,8 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
                     }
                     if data['Line'] != 'N/A':
                         ou_lines.append(data)
+                        # Odată ce am găsit Betano, putem ieși din buclă (presupunând că avem nevoie de prima linie)
+                        break 
         
         results['Over_Under_Lines'] = ou_lines
 
@@ -182,7 +183,6 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
             pass
         # ----------------------------
 
-        # Așteaptă containerul de rânduri
         try:
             wait.until(EC.visibility_of_element_located((By.XPATH, base_rows_xpath)))
         except:
@@ -203,8 +203,14 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
             bm_name = get_bookmaker_name_from_div(driver, row_container_xpath)
             
             if bm_name and TARGET_BOOKMAKER in bm_name:
-                home_odd_xpath = f'{row_container_xpath}/div[1]' 
-                away_odd_xpath = f'{row_container_xpath}/div[2]' 
+                
+                # NOU: DĂM CLICK PE RÂND
+                ffi2(driver, row_container_xpath) 
+                time.sleep(1) # Așteptăm ca datele să fie injectate
+                
+                # Presupunem că după click cotele se mută în div[2] și div[3]
+                home_odd_xpath = f'{row_container_xpath}/div[2]' 
+                away_odd_xpath = f'{row_container_xpath}/div[3]' 
                 
                 close_home = fffi(driver, home_odd_xpath)
                 close_away = fffi(driver, away_odd_xpath)
@@ -224,6 +230,7 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
                     }
                     if data['Line'] != 'N/A':
                         handicap_lines.append(data)
+                        break
 
         results['Handicap_Lines'] = handicap_lines
             
