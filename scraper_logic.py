@@ -1,14 +1,15 @@
-
-def scrape_from_page_source(ou_link, ah_link):
+def scrape_with_js_wait(ou_link, ah_link):
     from selenium import webdriver
     from selenium.webdriver.chrome.service import Service
     from selenium.webdriver.chrome.options import Options
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support.ui import WebDriverWait
+    from selenium.webdriver.support import expected_conditions as EC
     import os
     import time
     import re
-    import json
     
-    results = {'Match': 'Scraping din page_source'}
+    results = {'Match': 'Scraping cu așteptare JS'}
     
     chrome_options = Options()
     chrome_options.add_argument("--headless")
@@ -20,22 +21,53 @@ def scrape_from_page_source(ou_link, ah_link):
     try:
         service = Service(chromedriver_path)
         driver = webdriver.Chrome(service=service, options=chrome_options)
+        wait = WebDriverWait(driver, 15)
         
-        print("=== SCRAPING DIN PAGE_SOURCE ===")
+        print("=== SCRAPING CU AȘTEPTARE JS ===")
         
         # ----------------------------------------------------
         # OVER/UNDER
         # ----------------------------------------------------
         print("=== OVER/UNDER ===")
         driver.get(ou_link)
-        time.sleep(8)  # Așteaptă mai mult pentru încărcare completă
         
-        # Salvează page_source pentru analiză
+        # Așteaptă ca elementele specifice să se încarce
+        print("Aștept încărcare JavaScript...")
+        
+        # Așteaptă tab-ul Over/Under să fie prezent
+        try:
+            ou_tab = wait.until(EC.presence_of_element_located((By.XPATH, "//div[text()='Over/Under']")))
+            print("✓ Tab Over/Under încărcat")
+        except:
+            print("✗ Tab Over/Under nu s-a încărcat")
+        
+        # Așteaptă ca liniile să se încarce
+        try:
+            wait.until(EC.presence_of_element_located((By.XPATH, "//div[contains(text(), 'Over/Under +')]")))
+            print("✓ Linii Over/Under încărcate")
+        except:
+            print("✗ Linii nu s-au încărcat")
+        
+        # Așteaptă încă 5 secunde pentru datele dinamice
+        print("Aștept date dinamice...")
+        time.sleep(5)
+        
+        # Verifică dacă Betano s-a încărcat
+        betano_elements = driver.find_elements(By.XPATH, "//*[contains(text(), 'Betano')]")
+        print(f"Elemente Betano găsite: {len(betano_elements)}")
+        
+        # Salvează page_source după așteptare
         ou_html = driver.page_source
-        print(f"Lungime HTML OU: {len(ou_html)} caractere")
+        print(f"Lungime HTML OU după așteptare: {len(ou_html)}")
         
-        # Caută Betano și cotele direct în HTML
-        ou_lines = extract_data_from_html(ou_html, "Over/Under")
+        # Extrage datele
+        ou_lines = []
+        if betano_elements:
+            print("✓ Betano este în pagină - încerc extragere...")
+            ou_lines = extract_data_with_selenium(driver, "Over/Under")
+        else:
+            print("✗ Betano NU este în pagină chiar și după așteptare")
+        
         results['Over_Under_Lines'] = ou_lines
         
         # ----------------------------------------------------
@@ -43,20 +75,43 @@ def scrape_from_page_source(ou_link, ah_link):
         # ----------------------------------------------------
         print("=== ASIAN HANDICAP ===")
         driver.get(ah_link)
-        time.sleep(8)
         
-        ah_html = driver.page_source
-        print(f"Lungime HTML AH: {len(ah_html)} caractere")
+        print("Aștept încărcare JavaScript AH...")
         
-        ah_lines = extract_data_from_html(ah_html, "Asian Handicap")
+        # Așteaptă tab-ul Asian Handicap
+        try:
+            ah_tab = wait.until(EC.presence_of_element_located((By.XPATH, "//div[text()='Asian Handicap']")))
+            print("✓ Tab Asian Handicap încărcat")
+        except:
+            print("✗ Tab Asian Handicap nu s-a încărcat")
+        
+        # Așteaptă liniile AH
+        try:
+            wait.until(EC.presence_of_element_located((By.XPATH, "//div[contains(text(), 'Asian Handicap')]")))
+            print("✓ Linii Asian Handicap încărcate")
+        except:
+            print("✗ Linii AH nu s-au încărcat")
+        
+        print("Aștept date dinamice AH...")
+        time.sleep(5)
+        
+        # Verifică Betano pentru AH
+        ah_betano_elements = driver.find_elements(By.XPATH, "//*[contains(text(), 'Betano')]")
+        print(f"Elemente Betano AH găsite: {len(ah_betano_elements)}")
+        
+        ah_lines = []
+        if ah_betano_elements:
+            print("✓ Betano este în pagină AH - încerc extragere...")
+            ah_lines = extract_data_with_selenium(driver, "Asian Handicap")
+        
         results['Handicap_Lines'] = ah_lines
         
-        # DEBUG: Verifică ce a găsit
+        # DEBUG INFO
         results['Debug'] = {
+            'ou_betano_elements': len(betano_elements),
+            'ah_betano_elements': len(ah_betano_elements),
             'ou_lines_found': len(ou_lines),
-            'ah_lines_found': len(ah_lines),
-            'ou_html_sample': ou_html[:500] if ou_html else 'N/A',
-            'betano_in_ou': 'Betano.ro' in ou_html
+            'ah_lines_found': len(ah_lines)
         }
         
     except Exception as e:
@@ -67,81 +122,58 @@ def scrape_from_page_source(ou_link, ah_link):
     
     return results
 
-def extract_data_from_html(html, market_type):
-    """Extrage datele direct din HTML"""
+def extract_data_with_selenium(driver, market_type):
+    """Extrage datele folosind Selenium după ce JS s-a încărcat"""
     lines = []
     
-    print(f"Analiză HTML pentru {market_type}...")
+    print(f"Extragere {market_type} cu Selenium...")
     
-    # Verifică dacă Betano există în HTML
-    if 'Betano.ro' not in html:
-        print(f"✗ Betano.ro NU este în HTML pentru {market_type}")
-        return lines
+    # Găsește toate containerele de linii
+    line_containers = driver.find_elements(By.XPATH, "//div[contains(@class, 'min-md:px-[10px]')]/div")
+    print(f"Containere linii găsite: {len(line_containers)}")
     
-    print(f"✓ Betano.ro este în HTML pentru {market_type}")
+    for i, container in enumerate(line_containers[:10]):
+        try:
+            # Verifică dacă este linie corectă
+            text_elements = container.find_elements(By.XPATH, ".//div[contains(@class, 'font-bold text-[#2F2F2F]')]")
+            if not text_elements:
+                continue
+                
+            line_text = text_elements[0].text
+            if market_type in line_text:
+                print(f"✓ {market_type} linie {i+1}: {line_text}")
+                
+                # Extrage valoarea liniei
+                line_match = re.search(rf'{market_type}\s*([+-]?\d+\.?\d*)', line_text)
+                line_value = line_match.group(1) if line_match else 'N/A'
+                
+                # Încearcă să găsești Betano în acest container
+                betano_in_container = container.find_elements(By.XPATH, ".//*[contains(text(), 'Betano')]")
+                if betano_in_container:
+                    print(f"  ✅ Betano găsit în linia {i+1}")
+                    
+                    # Extrage cotele din container
+                    odds_elements = container.find_elements(By.XPATH, ".//p[@class='odds-text']")
+                    if len(odds_elements) >= 2:
+                        odds = [elem.text for elem in odds_elements[:2]]
+                        
+                        line_data = {
+                            'Line': line_value,
+                            f'{"Over" if market_type == "Over/Under" else "Home"}_Close': odds[0],
+                            f'{"Over" if market_type == "Over/Under" else "Home"}_Open': 'N/A',
+                            f'{"Under" if market_type == "Over/Under" else "Away"}_Close': odds[1],
+                            f'{"Under" if market_type == "Over/Under" else "Away"}_Open': 'N/A',
+                            'Bookmaker': 'Betano.ro'
+                        }
+                        
+                        lines.append(line_data)
+                        print(f"  ✅ Date extrase: {line_value} | {odds[0]}/{odds[1]}")
+                        
+        except Exception as e:
+            continue
     
-    # Caută structuri cu Betano și cote
-    # Pattern 1: Betano cu cote în același context
-    betano_patterns = [
-        r'Betano\.ro[^>]*>[\s\S]{0,500}?(\d+\.\d+)[\s\S]{0,100}?(\d+\.\d+)',
-        r'odds-text["\']>(\d+\.\d+)<[^>]*>[\s\S]{0,300}?Betano\.ro',
-        r'Betano\.ro[\s\S]{0,200}?odds-text["\']>(\d+\.\d+)<[\s\S]{0,200}?odds-text["\']>(\d+\.\d+)<'
-    ]
-    
-    for pattern in betano_patterns:
-        matches = re.findall(pattern, html)
-        if matches:
-            print(f"✓ Găsite {len(matches)} potriviri cu pattern: {pattern[:50]}...")
-            for match in matches[:3]:  # Primele 3 potriviri
-                if isinstance(match, tuple) and len(match) >= 2:
-                    odds = [str(odd) for odd in match[:2]]
-                    lines.append({
-                        'Line': 'Extras din HTML',
-                        f'{"Over" if market_type == "Over/Under" else "Home"}_Close': odds[0],
-                        f'{"Over" if market_type == "Over/Under" else "Home"}_Open': 'N/A',
-                        f'{"Under" if market_type == "Over/Under" else "Away"}_Close': odds[1],
-                        f'{"Under" if market_type == "Over/Under" else "Away"}_Open': 'N/A',
-                        'Bookmaker': 'Betano.ro',
-                        'Source': 'HTML_Extraction'
-                    })
-                    print(f"  - Cote: {odds[0]}/{odds[1]}")
-            break
-    
-    # Dacă nu găsim cu pattern, încercăm să extragem toate cotele și să le asociem cu Betano
-    if not lines:
-        print("Încerc extragere manuală...")
-        # Extrage toate cotele odds-text
-        all_odds = re.findall(r'odds-text["\']>(\d+\.\d+)<', html)
-        print(f"Total cote găsite în HTML: {len(all_odds)}")
-        
-        # Extrage poziția Betano
-        betano_positions = [m.start() for m in re.finditer('Betano\.ro', html)]
-        print(f"Poziții Betano în HTML: {len(betano_positions)}")
-        
-        # Pentru fiecare Betano, caută cele mai apropiate cote
-        for i, betano_pos in enumerate(betano_positions[:5]):
-            # Caută cote în vecinătatea Betano
-            context_start = max(0, betano_pos - 1000)
-            context_end = min(len(html), betano_pos + 1000)
-            context = html[context_start:context_end]
-            
-            # Extrage cote din context
-            context_odds = re.findall(r'odds-text["\']>(\d+\.\d+)<', context)
-            if len(context_odds) >= 2:
-                lines.append({
-                    'Line': f'Linie {i+1}',
-                    f'{"Over" if market_type == "Over/Under" else "Home"}_Close': context_odds[0],
-                    f'{"Over" if market_type == "Over/Under" else "Home"}_Open': 'N/A',
-                    f'{"Under" if market_type == "Over/Under" else "Away"}_Close': context_odds[1],
-                    f'{"Under" if market_type == "Over/Under" else "Away"}_Open': 'N/A',
-                    'Bookmaker': 'Betano.ro',
-                    'Source': 'Context_Extraction'
-                })
-                print(f"✓ Betano {i+1}: {context_odds[0]}/{context_odds[1]}")
-    
-    print(f"Total linii extrase pentru {market_type}: {len(lines)}")
     return lines
 
 # FOLOSEȘTE ACEST COD!
 def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
-    return scrape_from_page_source(ou_link, ah_link)
+    return scrape_with_js_wait(ou_link, ah_link)
