@@ -1,221 +1,29 @@
-# scraper_logic.py (VERSIUNEA 20.0 - Optimizat pentru Pagini Dinamice)
+# scraper_logic.py (VERSIUNEA ULTIMĂ - Bazat pe HTML-ul real)
 
 import os
 import time
-import random
 from collections import defaultdict
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service 
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.action_chains import ActionChains
-from selenium.common.exceptions import NoSuchElementException, TimeoutException
+from selenium.common.exceptions import NoSuchElementException
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC 
 
-# ------------------------------------------------------------------------------
-# ⚙️ CONFIGURARE AVANSATĂ
-# ------------------------------------------------------------------------------
-TARGET_BOOKMAKER_HREF_PARTIAL = "betano"
-# ------------------------------------------------------------------------------
-
-# ------------------------------------------------------------------------------
-# 🛠️ FUNCȚII AJUTĂTOARE ÎMBUNĂTĂȚITE
-# ------------------------------------------------------------------------------
-
-def human_like_delay(min_seconds=0.5, max_seconds=2):
-    """Așteaptă un timp aleatoriu pentru a imita comportamentul uman."""
-    time.sleep(random.uniform(min_seconds, max_seconds))
-
-def scroll_to_element(driver, element):
-    """Face scroll către element pentru a-l aduce în viewport."""
-    try:
-        driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", element)
-        human_like_delay(0.3, 0.7)
-    except:
-        pass
-
-def wait_for_page_load(driver, timeout=30):
-    """Așteaptă până când pagina este complet încărcată."""
-    WebDriverWait(driver, timeout).until(
-        lambda driver: driver.execute_script("return document.readyState") == "complete"
-    )
-
-def find_and_click_tab(driver, tab_name, max_retries=3):
-    """Găsește și dă click pe un tab după nume cu retry-uri."""
-    selectors = [
-        f"//div[contains(text(), '{tab_name}')]",
-        f"//button[contains(text(), '{tab_name}')]",
-        f"//a[contains(text(), '{tab_name}')]",
-        f"//*[contains(@class, 'tab') and contains(text(), '{tab_name}')]",
-        f"//*[contains(text(), '{tab_name}')]",
-        f"//*[translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz') = '{tab_name.lower()}']"
-    ]
-    
-    for attempt in range(max_retries):
-        for selector in selectors:
-            try:
-                print(f"Încerc selector: {selector} (încercarea {attempt + 1})")
-                element = WebDriverWait(driver, 10).until(
-                    EC.element_to_be_clickable((By.XPATH, selector))
-                )
-                
-                # Scroll și highlight
-                scroll_to_element(driver, element)
-                driver.execute_script("arguments[0].style.border='2px solid red';", element)
-                
-                # Click cu JavaScript
-                driver.execute_script("arguments[0].click();", element)
-                
-                human_like_delay(1, 2)
-                
-                # Verifică dacă click-ul a avut efect
-                driver.execute_script("arguments[0].style.border='';", element)
-                return True
-                
-            except Exception as e:
-                print(f"Selector {selector} a eșuat: {e}")
-                continue
-        
-        # Dacă niciun selector nu funcționează, încercă refresh
-        if attempt < max_retries - 1:
-            driver.refresh()
-            human_like_delay(2, 4)
-            wait_for_page_load(driver)
-    
-    return False
-
-def expand_all_lines(driver):
-    """Încearcă să expandeze toate liniile de cote."""
-    expand_buttons = [
-        "//div[contains(@class, 'table-main__row--details-line-wrapper')]",
-        "//div[contains(@class, 'table-main__row--more')]",
-        "//div[contains(@class, 'expand')]",
-        "//div[contains(@class, 'show-more')]",
-        "//button[contains(text(), 'More')]"
-    ]
-    
-    for selector in expand_buttons:
-        try:
-            elements = driver.find_elements(By.XPATH, selector)
-            for element in elements[:3]:  # Încearcă doar primele 3
-                try:
-                    scroll_to_element(driver, element)
-                    driver.execute_script("arguments[0].click();", element)
-                    human_like_delay(0.5, 1)
-                except:
-                    pass
-            break
-        except:
-            continue
-
-def find_betano_row_advanced(driver, line_row_element):
-    """Găsește rândul Betano folosind multiple strategii."""
-    strategies = [
-        # Strategia 1: Caută direct după href
-        f'.//a[contains(@href, "{TARGET_BOOKMAKER_HREF_PARTIAL}")]/ancestor::div[contains(@class, "table-main__row--details-line")]',
-        
-        # Strategia 2: Caută după text Betano
-        './/p[contains(text(), "Betano")]/ancestor::div[contains(@class, "table-main__row--details-line")]',
-        './/span[contains(text(), "Betano")]/ancestor::div[contains(@class, "table-main__row--details-line")]',
-        
-        # Strategia 3: Caută în toate rândurile de detalii
-        './/div[contains(@class, "table-main__row--details-line")]',
-        
-        # Strategia 4: Caută orice element care conține Betano
-        './/*[contains(text(), "Betano")]/ancestor::div[contains(@class, "row")]'
-    ]
-    
-    for strategy in strategies:
-        try:
-            element = line_row_element.find_element(By.XPATH, strategy)
-            print(f"Găsit Betano cu strategia: {strategy}")
-            return element
-        except NoSuchElementException:
-            continue
-    
-    return None
-
-def get_opening_odd_from_click_improved(driver, element_to_click_xpath):
-    """Versiune îmbunătățită pentru extragerea cotelor de deschidere."""
-    
-    try:
-        # Găsește elementul pentru click
-        element = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.XPATH, element_to_click_xpath))
-        )
-        
-        # Scroll și highlight
-        scroll_to_element(driver, element)
-        driver.execute_script("arguments[0].style.border='2px solid blue';", element)
-        
-        # Click cu JavaScript
-        driver.execute_script("arguments[0].click();", element)
-        human_like_delay(1, 1.5)
-        
-        # Așteaptă popup-ul cu multiple selectori
-        popup_selectors = [
-            '//*[@id="tooltip_v"]//div[2]/p[@class="odds-text"]',
-            '//*[contains(@class, "tooltip")]//p[contains(@class, "odds-text")]',
-            '//*[contains(@class, "popup")]//p[contains(@class, "odds")]',
-            '//*[contains(@class, "modal")]//p[contains(text(), ".")]'  # pentru numere cu zecimale
-        ]
-        
-        opening_odd_text = None
-        for selector in popup_selectors:
-            try:
-                opening_odd_element = WebDriverWait(driver, 3).until(
-                    EC.visibility_of_element_located((By.XPATH, selector))
-                )
-                opening_odd_text = opening_odd_element.text.strip()
-                print(f"Găsit opening odd: {opening_odd_text}")
-                break
-            except TimeoutException:
-                continue
-        
-        # Închide popup-ul făcând click în altă parte
-        try:
-            body = driver.find_element(By.TAG_NAME, 'body')
-            body.click()
-        except:
-            pass
-        
-        human_like_delay(0.5, 1)
-        
-        return opening_odd_text if opening_odd_text else 'N/A'
-        
-    except Exception as e:
-        print(f"Eroare la get_opening_odd: {e}")
-        return f'Eroare: {str(e)}'
-
-# ------------------------------------------------------------------------------
-# 🚀 FUNCȚIA PRINCIPALĂ DE SCRAPING ÎMBUNĂTĂȚITĂ
-# ------------------------------------------------------------------------------
-
-def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
-    
-    global TARGET_BOOKMAKER_HREF_PARTIAL 
+def scrape_optimized_based_on_html(ou_link, ah_link):
+    """Scraper ultra-rapid bazat pe structura HTML reală"""
     
     results = defaultdict(dict)
-    results['Match'] = 'Scraping optimizat pentru pagini dinamice'
-    driver = None 
+    driver = None
     
-    # --- Inițializare driver avansată ---
+    # Configurație rapidă
     chrome_options = Options()
     chrome_options.add_argument("--headless")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--window-size=1920,1080")
-    chrome_options.add_argument("--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-    
-    # Optimizări pentru pagini dinamice
-    chrome_options.add_experimental_option("prefs", {
-        "profile.default_content_setting_values.notifications": 2,
-        "profile.default_content_setting_values.popups": 2,
-    })
-    chrome_options.add_experimental_option('excludeSwitches', ['enable-automation'])
-    chrome_options.add_experimental_option('useAutomationExtension', False)
     
     chrome_options.binary_location = os.environ.get("GOOGLE_CHROME_BIN", "/usr/bin/chromium")
     chromedriver_path = os.environ.get("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
@@ -223,201 +31,235 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
     try:
         service = Service(chromedriver_path)
         driver = webdriver.Chrome(service=service, options=chrome_options)
-        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-        
-    except Exception as e:
-        results['Error'] = f"Eroare la inițializarea driverului: {e}"
-        return dict(results)
-
-    try:
-        wait = WebDriverWait(driver, 30)
+        driver.set_page_load_timeout(15)
         
         # ----------------------------------------------------
-        # ETAPA 1: Over/Under cu logica îmbunătățită
+        # OVER/UNDER - MAXIM 15 SECUNDE
         # ----------------------------------------------------
-        print("=== ÎNCEPE SCRAPING OVER/UNDER ===")
+        print("=== SCRAPING OVER/UNDER ===")
         driver.get(ou_link)
+        time.sleep(2)
         
-        # Așteaptă încărcarea completă a paginii
-        wait_for_page_load(driver)
-        human_like_delay(2, 3)
-        
-        # Facem scroll pentru a încărca content-ul lazy
-        driver.execute_script("window.scrollTo(0, 300);")
-        human_like_delay(1, 2)
-        driver.execute_script("window.scrollTo(0, 0);")
-        
-        # Clic pe tabul Over/Under
-        if not find_and_click_tab(driver, "Over/Under"):
-            results['OU_Error'] = "Nu s-a putut găsi sau apăsa tabul Over/Under"
-            # Continuăm anyway, poate tab-ul este deja activ
-            
-        human_like_delay(2, 3)
-        
-        # Încearcă să expandeze liniile
-        expand_all_lines(driver)
-        human_like_delay(1, 2)
-        
-        # Așteaptă liniile să fie vizibile
+        # 1. CLICK PE TABUL OVER/UNDER (folosind selectorul exact)
+        ou_tab_xpath = "//li[@data-testid='navigation-active-tab']//div[text()='Over/Under']"
         try:
-            wait.until(EC.presence_of_all_elements_located((By.XPATH, '//div[contains(@class, "table-main__row--details-line-wrapper")]')))
+            ou_tab = WebDriverWait(driver, 5).until(
+                EC.element_to_be_clickable((By.XPATH, ou_tab_xpath))
+            )
+            driver.execute_script("arguments[0].click();", ou_tab)
+            print("✓ Click pe tab Over/Under")
+            time.sleep(2)
         except:
-            print("Nu s-au găsit linii imediat, continuăm...")
+            print("✗ Tab Over/Under nu a putut fi apăsat")
         
-        # Extrage liniile OU
+        # 2. GĂSEȘTE TOATE LINIILE OVER/UNDER
         ou_lines = []
-        all_line_rows = driver.find_elements(By.XPATH, '//div[contains(@class, "table-main__row--details-line-wrapper")]')
-        print(f"Găsite {len(all_line_rows)} linii OU")
         
-        for i, line_row_element in enumerate(all_line_rows[:5]):  # Limită la primele 5 linii
+        # Selector pentru liniile Over/Under (bazat pe HTML-ul tău)
+        line_selectors = [
+            "//div[@data-testid='over-under-collapsed-option-box']",
+            "//div[contains(@class, 'flex w-full items-center') and contains(., 'Over/Under')]"
+        ]
+        
+        for selector in line_selectors:
             try:
-                print(f"Procesez linia OU {i+1}")
+                line_elements = driver.find_elements(By.XPATH, selector)
+                print(f"Găsite {len(line_elements)} linii OU")
                 
-                # Expandare linie
-                scroll_to_element(driver, line_row_element)
-                driver.execute_script("arguments[0].click();", line_row_element)
-                human_like_delay(1, 2)
+                for line_element in line_elements[:3]:  # Primele 3 linii
+                    try:
+                        # Extrage linia (ex: "+219.5")
+                        line_text = line_element.text
+                        line_value = None
+                        if "Over/Under" in line_text:
+                            # Extrage numărul după Over/Under
+                            import re
+                            match = re.search(r'Over/Under\s*([+-]?\d+\.?\d*)', line_text)
+                            if match:
+                                line_value = match.group(1)
+                        
+                        # Găsește rândul Betano după ce dăm click pe linie
+                        driver.execute_script("arguments[0].click();", line_element)
+                        time.sleep(1)
+                        
+                        # Caută Betano în rândurile care apar
+                        betano_selectors = [
+                            "//div[contains(@class, 'odds-cell') and contains(@class, 'bg-[#ffcf0d]')]",
+                            "//div[@data-testid='odd-container']",
+                            "//p[@data-testid='odd-container-default']"
+                        ]
+                        
+                        home_odd = None
+                        away_odd = None
+                        
+                        for bet_selector in betano_selectors:
+                            try:
+                                odds_elements = driver.find_elements(By.XPATH, bet_selector)
+                                if len(odds_elements) >= 2:
+                                    home_odd = odds_elements[0].text
+                                    away_odd = odds_elements[1].text
+                                    break
+                            except:
+                                continue
+                        
+                        if home_odd and away_odd:
+                            # Extrage opening odds - dă click pe prima cotă
+                            opening_home = get_opening_odds_optimized(driver, betano_selectors[0])
+                            opening_away = get_opening_odds_optimized(driver, betano_selectors[1] if len(betano_selectors) > 1 else betano_selectors[0])
+                            
+                            ou_lines.append({
+                                'Line': line_value or 'N/A',
+                                'Home_Over_Close': home_odd,
+                                'Home_Over_Open': opening_home,
+                                'Away_Under_Close': away_odd, 
+                                'Away_Under_Open': opening_away,
+                                'Bookmaker': 'Betano'
+                            })
+                            print(f"✓ Linie OU găsită: {line_value} | {home_odd} | {away_odd}")
+                            break
+                            
+                    except Exception as e:
+                        print(f"Eroare linie OU: {e}")
+                        continue
                 
-                # Găsește rândul Betano
-                betano_row_element = find_betano_row_advanced(driver, line_row_element)
-                
-                if not betano_row_element:
-                    print(f"Nu s-a găsit Betano pe linia {i+1}")
-                    continue
-                
-                # Extrage linia
-                line_raw_text = ffi(betano_row_element, By.XPATH, './/span[contains(@class, "table-main__detail-line-more")]')
-                line = line_raw_text.strip() if line_raw_text else 'N/A'
-                
-                print(f"Linia găsită: {line}")
-                
-                # Extrage cotele
-                home_odd = ffi(betano_row_element, By.XPATH, './/div[contains(@class, "odds")]')
-                away_odd = ffi(betano_row_element, By.XPATH, './/div[contains(@class, "odds")][2]')
-                
-                if home_odd and away_odd:
-                    data = {
-                        'Line': line,
-                        'Home_Over_Close': home_odd,
-                        'Home_Over_Open': 'N/A',  # Vom completa mai târziu
-                        'Away_Under_Close': away_odd,
-                        'Away_Under_Open': 'N/A',  # Vom completa mai târziu
-                        'Bookmaker': 'Betano'
-                    }
-                    ou_lines.append(data)
-                    print(f"Adăugat linie OU: {data}")
-                    break  # Prima linie validă este suficientă
+                if ou_lines:
+                    break
                     
             except Exception as e:
-                print(f"Eroare la procesarea liniei OU {i+1}: {e}")
-            finally:
-                # Colapsează linia
-                try:
-                    driver.execute_script("arguments[0].click();", line_row_element)
-                except:
-                    pass
+                print(f"Eroare selector OU: {e}")
+                continue
         
         results['Over_Under_Lines'] = ou_lines
 
         # ----------------------------------------------------
-        # ETAPA 2: Asian Handicap cu aceeași logică
+        # ASIAN HANDICAP - MAXIM 15 SECUNDE
         # ----------------------------------------------------
-        print("=== ÎNCEPE SCRAPING ASIAN HANDICAP ===")
+        print("=== SCRAPING ASIAN HANDICAP ===")
         driver.get(ah_link)
+        time.sleep(2)
         
-        # Așteaptă încărcarea completă a paginii
-        wait_for_page_load(driver)
-        human_like_delay(2, 3)
+        # 1. CLICK PE TABUL ASIAN HANDICAP
+        ah_tab_xpath = "//li[@data-testid='navigation-active-tab']//div[text()='Asian Handicap']"
+        try:
+            ah_tab = WebDriverWait(driver, 5).until(
+                EC.element_to_be_clickable((By.XPATH, ah_tab_xpath))
+            )
+            driver.execute_script("arguments[0].click();", ah_tab)
+            print("✓ Click pe tab Asian Handicap")
+            time.sleep(2)
+        except:
+            print("✗ Tab Asian Handicap nu a putut fi apăsat")
         
-        # Scroll pentru a încărca content-ul
-        driver.execute_script("window.scrollTo(0, 300);")
-        human_like_delay(1, 2)
-        driver.execute_script("window.scrollTo(0, 0);")
+        # 2. GĂSEȘTE LINIILE ASIAN HANDICAP
+        ah_lines = []
         
-        # Clic pe tabul Asian Handicap
-        if not find_and_click_tab(driver, "Asian Handicap"):
-            results['AH_Error'] = "Nu s-a putut găsi sau apăsa tabul Asian Handicap"
-            
-        human_like_delay(2, 3)
+        # Selector pentru Asian Handicap (similar cu OU)
+        ah_line_selectors = [
+            "//div[contains(@class, 'flex w-full items-center') and contains(., 'Asian Handicap')]",
+            "//div[@data-testid='over-under-collapsed-option-box']"
+        ]
         
-        # Expandare linii
-        expand_all_lines(driver)
-        human_like_delay(1, 2)
-        
-        # Extrage liniile AH
-        handicap_lines = []
-        all_line_rows = driver.find_elements(By.XPATH, '//div[contains(@class, "table-main__row--details-line-wrapper")]')
-        print(f"Găsite {len(all_line_rows)} linii AH")
-        
-        for i, line_row_element in enumerate(all_line_rows[:5]):
+        for selector in ah_line_selectors:
             try:
-                print(f"Procesez linia AH {i+1}")
+                line_elements = driver.find_elements(By.XPATH, selector)
+                print(f"Găsite {len(line_elements)} linii AH")
                 
-                scroll_to_element(driver, line_row_element)
-                driver.execute_script("arguments[0].click();", line_row_element)
-                human_like_delay(1, 2)
+                for line_element in line_elements[:3]:
+                    try:
+                        # Extrage linia Asian Handicap
+                        line_text = line_element.text
+                        line_value = None
+                        if "Asian Handicap" in line_text:
+                            import re
+                            match = re.search(r'Asian Handicap\s*([+-]?\d+\.?\d*)', line_text)
+                            if match:
+                                line_value = match.group(1)
+                        
+                        driver.execute_script("arguments[0].click();", line_element)
+                        time.sleep(1)
+                        
+                        # Cotele pentru Asian Handicap
+                        home_odd = None
+                        away_odd = None
+                        
+                        for bet_selector in betano_selectors:
+                            try:
+                                odds_elements = driver.find_elements(By.XPATH, bet_selector)
+                                if len(odds_elements) >= 2:
+                                    home_odd = odds_elements[0].text
+                                    away_odd = odds_elements[1].text
+                                    break
+                            except:
+                                continue
+                        
+                        if home_odd and away_odd:
+                            opening_home = get_opening_odds_optimized(driver, betano_selectors[0])
+                            opening_away = get_opening_odds_optimized(driver, betano_selectors[1] if len(betano_selectors) > 1 else betano_selectors[0])
+                            
+                            ah_lines.append({
+                                'Line': line_value or 'N/A',
+                                'Home_Over_Close': home_odd,
+                                'Home_Over_Open': opening_home,
+                                'Away_Under_Close': away_odd,
+                                'Away_Under_Open': opening_away,
+                                'Bookmaker': 'Betano'
+                            })
+                            print(f"✓ Linie AH găsită: {line_value} | {home_odd} | {away_odd}")
+                            break
+                            
+                    except Exception as e:
+                        print(f"Eroare linie AH: {e}")
+                        continue
                 
-                betano_row_element = find_betano_row_advanced(driver, line_row_element)
-                
-                if not betano_row_element:
-                    print(f"Nu s-a găsit Betano pe linia AH {i+1}")
-                    continue
-                
-                line_raw_text = ffi(betano_row_element, By.XPATH, './/span[contains(@class, "table-main__detail-line-more")]')
-                line = line_raw_text.strip() if line_raw_text else 'N/A'
-                
-                print(f"Linia AH găsită: {line}")
-                
-                home_odd = ffi(betano_row_element, By.XPATH, './/div[contains(@class, "odds")]')
-                away_odd = ffi(betano_row_element, By.XPATH, './/div[contains(@class, "odds")][2]')
-                
-                if home_odd and away_odd:
-                    data = {
-                        'Line': line,
-                        'Home_Over_Close': home_odd,
-                        'Home_Over_Open': 'N/A',
-                        'Away_Under_Close': away_odd,
-                        'Away_Under_Open': 'N/A',
-                        'Bookmaker': 'Betano'
-                    }
-                    handicap_lines.append(data)
-                    print(f"Adăugat linie AH: {data}")
+                if ah_lines:
                     break
                     
             except Exception as e:
-                print(f"Eroare la procesarea liniei AH {i+1}: {e}")
-            finally:
-                try:
-                    driver.execute_script("arguments[0].click();", line_row_element)
-                except:
-                    pass
+                print(f"Eroare selector AH: {e}")
+                continue
         
-        results['Handicap_Lines'] = handicap_lines
+        results['Handicap_Lines'] = ah_lines
             
     except Exception as e:
-        results['Runtime_Error'] = f"Eroare neașteptată: {e}"
-        import traceback
-        results['Traceback'] = traceback.format_exc()
-    
+        results['Error'] = f"Eroare generală: {str(e)}"
     finally:
         if driver:
             driver.quit()
-            
-    print("=== SCRAPING COMPLET ===")
+    
     return dict(results)
 
-# Păstrăm funcțiile originale pentru compatibilitate
-def ffi(element_or_driver, by_method, locator):
+def get_opening_odds_optimized(driver, odds_selector):
+    """Extrage opening odds rapid"""
     try:
-        element = element_or_driver.find_element(by_method, locator)
-        return element.text.strip()
-    except NoSuchElementException:
-        return None
-
-def ffi2(driver, xpath):
-    try:
-        element = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, xpath)))
-        driver.execute_script("arguments[0].click();", element)
-        return True
+        # Găsește elementul odds și dă click
+        odds_element = driver.find_element(By.XPATH, odds_selector)
+        driver.execute_script("arguments[0].click();", odds_element)
+        time.sleep(1)
+        
+        # Caută opening odds în popup (bazat pe HTML-ul tău)
+        opening_selectors = [
+            "//div[contains(text(), 'Opening odds:')]/following-sibling::div//div[@class='font-bold']",
+            "//div[contains(., 'Opening odds')]//div[contains(@class, 'font-bold')]",
+            "//div[contains(., 'Opening odds')]"
+        ]
+        
+        for selector in opening_selectors:
+            try:
+                opening_element = driver.find_element(By.XPATH, selector)
+                opening_text = opening_element.text
+                # Extrage doar numărul (ex: "5.00")
+                import re
+                match = re.search(r'(\d+\.?\d*)', opening_text)
+                if match:
+                    return match.group(1)
+            except:
+                continue
+        
+        return 'N/A'
+        
     except:
-        return False
+        return 'N/A'
+
+# Folosește această funcție în Streamlit
+def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
+    return scrape_optimized_based_on_html(ou_link, ah_link)
