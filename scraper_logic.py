@@ -1,4 +1,4 @@
-# scraper_logic.py (VERSIUNEA FINALĂ ȘI INTEGRALĂ - CU ANCORĂ PE PREZENȚĂ)
+# scraper_logic.py (VERSIUNEA FINALĂ ȘI INTEGRALĂ - ANCORĂ DIRECTĂ PE RÂNDURI)
 
 import os
 import time
@@ -47,7 +47,7 @@ def ffi2(driver, xpath):
 
 def get_bookmaker_name_from_div(driver, row_xpath):
     """Extrage numele bookmakerului dintr-un rând bazat pe DIV."""
-    # În loc să căutăm după clasă, căutăm simplu primul DIV din rând
+    # Căutăm simplu primul DIV din rând
     xpath = f'{row_xpath}/div[1]' 
     element = find_element(driver, By.XPATH, xpath)
     return element.text.strip() if element else None
@@ -62,7 +62,7 @@ def fffi(driver, xpath):
     return ffi(driver, xpath) 
 
 # ------------------------------------------------------------------------------
-# 🚀 FUNCȚIA PRINCIPALĂ DE SCRAPING (ANCORĂ PE PREZENȚĂ)
+# 🚀 FUNCȚIA PRINCIPALĂ DE SCRAPING (ANCORĂ DIRECTĂ PE RÂNDURI)
 # ------------------------------------------------------------------------------
 
 def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
@@ -98,8 +98,7 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
     try:
         wait = WebDriverWait(driver, 20)
         
-        # ANCORE NOUĂ (Prezența containerului principal)
-        general_anchor_xpath = '//*[@id="app"]/div[1]'
+        # Containerul de Rânduri (Base Rows) - Acesta devine singura noastră ancoră.
         base_rows_xpath = '/html/body/div[1]/div[1]/div[1]/div/main/div[4]/div[2]/div[2]/div[2]'
 
         # ----------------------------------------------------
@@ -119,15 +118,13 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         # ----------------------------
 
         try:
-            # NOU: Folosim presence_of_element_located pentru a fi mai tolerant
-            wait.until(EC.presence_of_element_located((By.XPATH, general_anchor_xpath)))
+            # Așteaptă containerul specific de rânduri (cu vizibilitate)
+            wait.until(EC.visibility_of_element_located((By.XPATH, base_rows_xpath)))
         except:
-            results['Error'] = "Eroare la încărcarea paginii Over/Under (Ancora generală nu a fost găsită)."
+            # Schimbăm mesajul de eroare
+            results['Error'] = f"Eroare la încărcarea paginii Over/Under (Containerul de cote '{base_rows_xpath}' nu a fost găsit în 20s)."
             driver.quit()
             return dict(results)
-
-        # Așteaptă containerul specific de rânduri (folosim vizibilitatea aici)
-        wait.until(EC.visibility_of_element_located((By.XPATH, base_rows_xpath)))
         
         ou_lines = []
         time.sleep(3) 
@@ -183,8 +180,13 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
             pass
         # ----------------------------
 
-        wait.until(EC.presence_of_element_located((By.XPATH, general_anchor_xpath)))
-        wait.until(EC.visibility_of_element_located((By.XPATH, base_rows_xpath)))
+        # Așteaptă containerul de rânduri
+        try:
+            wait.until(EC.visibility_of_element_located((By.XPATH, base_rows_xpath)))
+        except:
+            results['Error'] = f"Eroare la încărcarea paginii Asian Handicap (Containerul de cote '{base_rows_xpath}' nu a fost găsit în 20s)."
+            driver.quit()
+            return dict(results)
         
         handicap_lines = []
         time.sleep(3) 
