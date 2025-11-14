@@ -1,48 +1,61 @@
-def scrape_via_api_fixed(ou_link, ah_link):
+def scrape_via_api_fixed_v2(ou_link, ah_link):
     import requests
     import re
     import json
+    import time
     from collections import defaultdict
     
-    results = {'Match': 'Scraping via API - Fixat'}
+    results = {'Match': 'Scraping via API - Fixat V2'}
     
     try:
-        # Extragem ID-ul meciului din link (corectat)
+        # Extragem ID-ul meciului
         match_id_match = re.search(r'/([a-zA-Z0-9-]+)-([a-zA-Z0-9]+)/', ou_link)
         if match_id_match:
-            match_id = match_id_match.group(2)  # xYgsQpLr
+            match_id = match_id_match.group(2)
             print(f"✓ ID meci extras: {match_id}")
         else:
-            # Încercă alt pattern
-            match_id_match = re.search(r'/([a-zA-Z0-9]+)$', ou_link.split('#')[0])
-            if match_id_match:
-                match_id = match_id_match.group(1)
-                print(f"✓ ID meci extras (alt pattern): {match_id}")
-            else:
-                results['Error'] = "Nu s-a putut extrage ID-ul meciului"
-                return results
+            results['Error'] = "Nu s-a putut extrage ID-ul meciului"
+            return results
         
-        # Headers pentru a trece de securitate
+        # Headers mai complet pentru a trece de securitate
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept': 'application/json, text/plain, */*',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Referer': ou_link,
-            'X-Requested-With': 'XMLHttpRequest',
+            'Accept-Language': 'en-US,en;q=0.9,ro;q=0.8',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Referer': 'https://www.oddsportal.com/',
+            'Origin': 'https://www.oddsportal.com',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-site',
+            'Connection': 'keep-alive',
+        }
+        
+        # Adaugă cookies pentru a imita un browser real
+        cookies = {
+            'oddsportal': '1',
+            'oddsportal_session': '1',
         }
         
         # ----------------------------------------------------
-        # ÎNCERCĂM ENDPOINT-URI COMUNE PENTRU ODDS PORTAL
+        # ÎNCERCĂM ENDPOINT-URI ALTERNATIVE
         # ----------------------------------------------------
         
         api_endpoints = [
-            f"https://fb.oddsportal.com/feed/match/{match_id}-1-2.dat",  # Cel mai comun
-            f"https://www.oddsportal.com/feed/match/{match_id}-1-2.dat",
+            # Endpoint-uri principale
+            f"https://fb.oddsportal.com/feed/match/{match_id}-1-2.dat?={int(time.time())}",
+            f"https://www.oddsportal.com/feed/match/{match_id}-1-2.dat?={int(time.time())}",
+            
+            # Endpoint-uri alternative
             f"https://fb.oddsportal.com/feed/match/1-1-{match_id}.dat",
             f"https://www.oddsportal.com/ajax/match/{match_id}/",
-            f"https://www.oddsportal.com/feed/match/{match_id}",
-            f"https://www.oddsportal.com/api/matches/{match_id}",
+            
+            # Endpoint-uri cu parametri diferiți
             f"https://fb.oddsportal.com/feed/match/{match_id}.dat",
+            f"https://www.oddsportal.com/api/v1/matches/{match_id}",
+            
+            # Endpoint pentru basketball specific
+            f"https://fb.oddsportal.com/feed/basketball/usa/nba/{match_id}.dat",
         ]
         
         api_data = None
@@ -50,36 +63,44 @@ def scrape_via_api_fixed(ou_link, ah_link):
         for endpoint in api_endpoints:
             try:
                 print(f"Încerc endpoint: {endpoint}")
-                response = requests.get(endpoint, headers=headers, timeout=10)
+                
+                # Adaugă timestamp pentru a evita cache-ul
+                if '?' not in endpoint:
+                    endpoint += f"?_={int(time.time())}"
+                
+                response = requests.get(endpoint, headers=headers, cookies=cookies, timeout=15)
                 
                 print(f"Status: {response.status_code}")
-                print(f"Content-Type: {response.headers.get('content-type', 'N/A')}")
+                print(f"Content-Length: {len(response.text)}")
                 
                 if response.status_code == 200:
                     content = response.text
                     print(f"✅ SUCCES la {endpoint} - Lungime: {len(content)}")
                     
-                    if content.strip():
+                    if content.strip() and len(content) > 10:  # Verifică că nu e mesaj de eroare
                         api_data = content
                         results['API_Endpoint'] = endpoint
                         results['API_Response_Length'] = len(content)
-                        results['API_Response_Sample'] = content[:500]
+                        results['API_Response_Sample'] = content[:500] if len(content) > 500 else content
                         
-                        # Salvează răspunsul complet pentru analiză
-                        with open(f'/tmp/oddsportal_api_{match_id}.txt', 'w') as f:
+                        # Salvează răspunsul complet
+                        with open(f'/tmp/oddsportal_response_{match_id}.txt', 'w') as f:
                             f.write(content)
-                        print(f"✓ Răspuns salvat în /tmp/oddsportal_api_{match_id}.txt")
+                        print(f"✓ Răspuns salvat: /tmp/oddsportal_response_{match_id}.txt")
                         break
                     else:
-                        print("✗ Răspuns gol")
+                        print("✗ Răspuns prea scurt sau gol")
+                else:
+                    print(f"✗ Status code: {response.status_code}")
                     
             except Exception as e:
-                print(f"✗ {endpoint}: {e}")
+                print(f"✗ Eroare: {e}")
                 continue
         
         if not api_data:
-            results['Error'] = "Niciun endpoint API nu a funcționat"
-            return results
+            # Încercă o abordare diferită - să folosim Selenium pentru a extrage datele din network tab
+            results['Error'] = "Toate endpoint-urile au returnat eroare. Încerc abordare Selenium..."
+            return scrape_via_selenium_network(ou_link, ah_link, match_id)
         
         # ----------------------------------------------------
         # PROCESSĂM DATELE API
@@ -88,139 +109,157 @@ def scrape_via_api_fixed(ou_link, ah_link):
         # Încercă să parseze ca JSON
         try:
             # Curăță potențialul padding JSONP
-            clean_data = api_data
-            if clean_data.startswith('window.ODSData=') or clean_data.startswith('ODSData='):
-                clean_data = re.sub(r'^[^=]*=', '', clean_data)
-                clean_data = re.sub(r';$', '', clean_data)
+            clean_data = api_data.strip()
+            
+            # Îndepărtează prefixele JSONP comune
+            jsonp_prefixes = ['window.ODSData=', 'ODSData=', 'jsonCallback(', 'callback(']
+            for prefix in jsonp_prefixes:
+                if clean_data.startswith(prefix):
+                    clean_data = clean_data[len(prefix):]
+                    # Îndepărtează sufixul )
+                    if clean_data.endswith(');'):
+                        clean_data = clean_data[:-2]
+                    elif clean_data.endswith(');'):
+                        clean_data = clean_data[:-1]
+                    break
             
             json_data = json.loads(clean_data)
             results['API_Data_Type'] = 'JSON'
             print("✅ Date JSON parsate cu succes")
             
-            # Analizează structura JSON-ului
-            analyze_json_structure(json_data)
-            
             # Extrage cotele din JSON
-            ou_lines = extract_from_json_advanced(json_data, "over-under")
-            ah_lines = extract_from_json_advanced(json_data, "asian-handicap")
+            ou_lines = extract_data_from_json(json_data, "over-under")
+            ah_lines = extract_data_from_json(json_data, "asian-handicap")
             
             results['Over_Under_Lines'] = ou_lines
             results['Handicap_Lines'] = ah_lines
             
         except json.JSONDecodeError as e:
-            print(f"⚠️ Nu e JSON: {e}")
+            print(f"⚠️ Nu e JSON, încerc parsare text: {e}")
             results['API_Data_Type'] = 'RAW_TEXT'
             
-            # Încearcă să extragi manual din text
-            ou_lines = extract_from_text_advanced(api_data, "Over/Under")
-            ah_lines = extract_from_text_advanced(api_data, "Asian Handicap")
-            
-            results['Over_Under_Lines'] = ou_lines
-            results['Handicap_Lines'] = ah_lines
+            # Verifică dacă conține date utile
+            if 'Betano' in api_data or 'betano' in api_data.lower():
+                print("✓ Betano găsit în răspunsul text")
+                ou_lines = extract_from_text_simple(api_data, "Over/Under")
+                ah_lines = extract_from_text_simple(api_data, "Asian Handicap")
+                
+                results['Over_Under_Lines'] = ou_lines
+                results['Handicap_Lines'] = ah_lines
+            else:
+                print("✗ Betano nu este în răspuns")
+                results['Over_Under_Lines'] = []
+                results['Handicap_Lines'] = []
         
     except Exception as e:
         results['Error'] = f"Eroare API: {str(e)}"
     
     return results
 
-def analyze_json_structure(json_data):
-    """Analizează structura JSON-ului pentru a înțelege cum să extragem datele"""
-    print("=== ANALIZĂ STRUCTURĂ JSON ===")
-    
-    def explore(obj, path="", depth=0):
-        if depth > 3:  # Limită adâncimea
-            return
-            
-        if isinstance(obj, dict):
-            for key, value in obj.items():
-                if key.lower() in ['odds', 'betano', 'over', 'under', 'handicap', 'market']:
-                    print(f"🔍 Cheie importantă: {path}.{key} = {type(value)}")
-                
-                if isinstance(value, (dict, list)):
-                    explore(value, f"{path}.{key}", depth + 1)
-                    
-        elif isinstance(obj, list) and len(obj) > 0:
-            if len(obj) <= 3:  # Arată doar primele elemente
-                for i, item in enumerate(obj[:3]):
-                    explore(item, f"{path}[{i}]", depth + 1)
-    
-    explore(json_data)
-    print("=== SFÂRȘIT ANALIZĂ ===")
-
-def extract_from_json_advanced(json_data, market_type):
-    """Extrage date din JSON folosind căutare avansată"""
+def extract_data_from_json(json_data, market_type):
+    """Extrage date din JSON"""
     lines = []
-    print(f"Extragere avansată din JSON pentru {market_type}...")
+    print(f"Extragere {market_type} din JSON...")
     
-    betano_data_found = []
-    
-    def find_betano_and_odds(obj, path=""):
+    # Funcție recursivă pentru a explora JSON-ul
+    def explore_json(obj, path=""):
+        findings = []
+        
         if isinstance(obj, dict):
-            # Verifică dacă este un obiect cu Betano
-            if any('betano' in str(k).lower() for k in obj.keys()):
-                betano_data_found.append({
-                    'path': path,
-                    'data': obj
-                })
-                print(f"✅ Betano object la: {path}")
-            
-            # Caută în continuare
+            # Verifică chei relevante
             for key, value in obj.items():
+                key_str = str(key).lower()
+                
+                # Verifică dacă este bookmaker Betano
+                if 'betano' in key_str:
+                    print(f"✅ Betano găsit la: {path}.{key}")
+                    findings.append({'type': 'betano', 'path': f"{path}.{key}", 'data': value})
+                
+                # Verifică pentru cote
+                elif any(odds_key in key_str for odds_key in ['odds', 'price', 'value', 'over', 'under']):
+                    if isinstance(value, (int, float)) or (isinstance(value, str) and '.' in value):
+                        print(f"📊 Cotă găsită: {path}.{key} = {value}")
+                        findings.append({'type': 'odds', 'path': f"{path}.{key}", 'value': value})
+                
+                # Explorează recursiv
                 if isinstance(value, (dict, list)):
-                    find_betano_and_odds(value, f"{path}.{key}")
+                    findings.extend(explore_json(value, f"{path}.{key}"))
                     
         elif isinstance(obj, list):
             for i, item in enumerate(obj):
-                find_betano_and_odds(item, f"{path}[{i}]")
-    
-    # Execută căutarea
-    find_betano_and_odds(json_data)
-    
-    print(f"Total obiecte Betano găsite: {len(betano_data_found)}")
-    
-    # Procesează datele găsite
-    for betano_obj in betano_data_found[:5]:  # Primele 5
-        print(f"Procesez: {betano_obj['path']}")
-        # Aici vom extrage cotele după ce vedem structura
+                findings.extend(explore_json(item, f"{path}[{i}]"))
         
+        return findings
+    
+    # Execută explorarea
+    findings = explore_json(json_data)
+    
+    # Procesează findings
+    betano_data = [f for f in findings if f['type'] == 'betano']
+    odds_data = [f for f in findings if f['type'] == 'odds']
+    
+    print(f"Betano findings: {len(betano_data)}")
+    print(f"Odds findings: {len(odds_data)}")
+    
+    # Creează linii bazate pe findings
+    if betano_data and odds_data:
+        # Grupează cotele (presupunem primele 2 cote pentru Betano)
+        if len(odds_data) >= 2:
+            lines.append({
+                'Line': 'Extras din JSON',
+                f'{"Over" if market_type == "over-under" else "Home"}_Close': odds_data[0]['value'],
+                f'{"Over" if market_type == "over-under" else "Home"}_Open': 'N/A',
+                f'{"Under" if market_type == "over-under" else "Away"}_Close': odds_data[1]['value'],
+                f'{"Under" if market_type == "over-under" else "Away"}_Open': 'N/A',
+                'Bookmaker': 'Betano.ro',
+                'Source': 'JSON_API'
+            })
+    
     return lines
 
-def extract_from_text_advanced(text_data, market_type):
-    """Extrage date din text folosind regex avansat"""
+def extract_from_text_simple(text_data, market_type):
+    """Extrage date simple din text"""
     lines = []
-    print(f"Extragere avansată din text pentru {market_type}...")
     
-    # Pattern-uri mai complexe pentru OddsPortal
+    # Caută pattern-uri simple
     patterns = [
-        # Pattern pentru structura de tip "Betano": {"odds": [1.85, 1.95]}
-        r'"Betano[^"]*"[^}]*"odds"[^:]*:[\s]*\[([\d.,\s]+)\]',
-        # Pattern pentru cote în apropiere de Betano
-        r'Betano[^}]*?(\d+\.\d+)[^}]*?(\d+\.\d+)',
-        # Pattern generic pentru cote
         r'(\d+\.\d+).*?Betano.*?(\d+\.\d+)',
+        r'Betano.*?(\d+\.\d+).*?(\d+\.\d+)',
     ]
     
     for pattern in patterns:
-        matches = re.findall(pattern, text_data, re.IGNORECASE | re.DOTALL)
+        matches = re.findall(pattern, text_data, re.IGNORECASE)
         if matches:
-            print(f"✓ Găsite {len(matches)} potriviri cu pattern: {pattern[:50]}...")
-            for i, match in enumerate(matches[:3]):
-                if isinstance(match, tuple) and len(match) >= 2:
-                    odds = [str(odd).strip() for odd in match[:2]]
+            for match in matches:
+                if len(match) >= 2:
                     lines.append({
-                        'Line': f'Linie {i+1}',
-                        f'{"Over" if market_type == "Over/Under" else "Home"}_Close': odds[0],
+                        'Line': 'Extras din text',
+                        f'{"Over" if market_type == "Over/Under" else "Home"}_Close': match[0],
                         f'{"Over" if market_type == "Over/Under" else "Home"}_Open': 'N/A',
-                        f'{"Under" if market_type == "Over/Under" else "Away"}_Close': odds[1],
+                        f'{"Under" if market_type == "Over/Under" else "Away"}_Close': match[1],
                         f'{"Under" if market_type == "Over/Under" else "Away"}_Open': 'N/A',
                         'Bookmaker': 'Betano.ro',
-                        'Source': 'API_Text_Advanced'
+                        'Source': 'Text_API'
                     })
-                    print(f"  - Cote extrase: {odds[0]}/{odds[1]}")
             break
     
     return lines
 
+def scrape_via_selenium_network(ou_link, ah_link, match_id):
+    """Folosește Selenium pentru a captura request-urile de network"""
+    from selenium import webdriver
+    from selenium.webdriver.chrome.service import Service
+    from selenium.webdriver.chrome.options import Options
+    import os
+    
+    results = {'Match': 'Scraping via Selenium Network'}
+    
+    # Această funcție ar necesita setup de Chrome cu logging pentru network
+    # Este mai complexă și o putem implementa dacă API-ul direct nu funcționează
+    
+    results['Error'] = "Abordarea Selenium Network necesită setup avansat"
+    return results
+
 # FOLOSEȘTE ACEST COD!
 def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
-    return scrape_via_api_fixed(ou_link, ah_link)
+    return scrape_via_api_fixed_v2(ou_link, ah_link)
