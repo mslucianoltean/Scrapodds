@@ -1,4 +1,4 @@
-# scraper_logic.py (VERSIUNEA FINALĂ ȘI STABILĂ CU URL-URI DIRECTE)
+# scraper_logic.py (VERSIUNEA FINALĂ ȘI INTEGRALĂ - ADAPTATĂ LA DIVS)
 
 import os
 import time
@@ -21,7 +21,7 @@ TYPE_ODDS = 'CLOSING'
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
-# 🛠️ FUNCȚII AJUTĂTOARE SELENIUM (Neschimbate)
+# 🛠️ FUNCȚII AJUTĂTOARE SELENIUM 
 # ------------------------------------------------------------------------------
 
 def find_element(driver, by_method, locator):
@@ -40,87 +40,47 @@ def ffi2(driver, xpath):
     """Dă click pe elementul de la xpath dacă există."""
     element = find_element(driver, By.XPATH, xpath)
     if element:
-        # Folosim JavaScript pentru a forța click-ul
         driver.execute_script("arguments[0].click();", element)
         return True
     return False
 
-def get_bookmaker_name(driver, row_xpath):
-    """Extrage numele bookmakerului din prima coloană a rândului (td[1])."""
-    xpath = f'{row_xpath}/td[1]'
-    return ffi(driver, xpath)
+def get_bookmaker_name_from_div(driver, row_xpath):
+    """Extrage numele bookmakerului dintr-un rând bazat pe DIV."""
+    # Presupunem că numele este într-un link (<a>) în interiorul rândului (div)
+    # Am ajustat calea pentru a căuta numele în structura complexă OddsPortal
+    xpath = f'{row_xpath}//div[@class="table-main__row-content"]//a'
+    element = find_element(driver, By.XPATH, xpath)
+    return element.text.strip() if element else None
+
+
+# ATENȚIE: FUNCȚIILE DE HOVER ȘI DE EXTRACȚIE COTE DE DESCHIDERE SUNT DEZACTIVATE TEMPORAR
+# Aceasta este cea mai probabilă cauză a erorilor de runtime silențioase.
 
 def get_opening_odd(driver, xpath):
-    """Extrage cota de deschidere prin hover pe cota de închidere."""
-    try:
-        data = driver.find_element(By.XPATH, xpath)
-        hov = ActionChains(driver).move_to_element(data)
-        hov.perform()
-        time.sleep(0.3) 
-        
-        data_in_the_bubble = driver.find_element(By.XPATH, "//*[@id='tooltiptext']") 
-        hover_data = data_in_the_bubble.get_attribute("innerHTML")
-
-        b = re.split('<br>', hover_data)
-        c = [re.split('</strong>',y)[0] for y in b][-2] 
-        opening_odd = re.split('<strong>', c)[1]
-        
-        return opening_odd.strip()
-    except Exception:
-        return 'N/A'
+    """DEZACTIVAT: Funcția de hover care cauzează instabilitate."""
+    return 'DEZACTIVAT (instabil)'
 
 def fffi(driver, xpath):
-    """Returnează cota (în funcție de TYPE_ODDS). Extrage cota de deschidere sau cota de închidere."""
-    global TYPE_ODDS
-    if TYPE_ODDS == 'OPENING':
-        return get_opening_odd(driver, xpath) 
-    else:
-        return ffi(driver, xpath) 
-
-def extract_odds_for_line(driver, row_xpath, home_col, away_col):
-    """Extrage linia și cotele de deschidere/închidere pentru o pereche de coloane."""
-    
-    global TYPE_ODDS
-    
-    xpath_home_odd = f'{row_xpath}/td[{home_col}]/div'
-    xpath_away_odd = f'{row_xpath}/td[{away_col}]/div'
-    
-    close_home = fffi(driver, xpath_home_odd)
-    close_away = fffi(driver, xpath_away_odd)
-    
-    if close_home is None or close_away is None:
-        return None 
-        
-    line_raw_text = close_home 
-    line_match = re.search(r'[+-]?\d+\.?\d*', line_raw_text)
-    line = line_match.group(0) if line_match else 'N/A'
-
-    open_home = get_opening_odd(driver, xpath_home_odd) if TYPE_ODDS == 'CLOSING' else 'N/A'
-    open_away = get_opening_odd(driver, xpath_away_odd) if TYPE_ODDS == 'CLOSING' else 'N/A'
-    
-    return {
-        'Line': line,
-        'Home_Over_Close': close_home,
-        'Home_Over_Open': open_home,
-        'Away_Under_Close': close_away,
-        'Away_Under_Open': open_away,
-    }
+    """Returnează cota de închidere (doar textul cotei)."""
+    return ffi(driver, xpath) 
 
 # ------------------------------------------------------------------------------
-# 🚀 FUNCȚIA PRINCIPALĂ DE SCRAPING (ACCEPTEAZĂ DOUĂ LINK-URI)
+# 🚀 FUNCȚIA PRINCIPALĂ DE SCRAPING (ADAPTATĂ LA DIVS)
 # ------------------------------------------------------------------------------
 
 def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
     """
     Scrapează liniile de Over/Under și Handicap din link-uri directe (ou_link și ah_link).
+    Folosește structura DIV-based și dezactivează extragerea cotelor de deschidere.
     """
     
     global TARGET_BOOKMAKER 
     
     results = defaultdict(dict)
+    results['Match'] = 'Scraping activat' 
     driver = None 
 
-    # --- Inițializare driver (Sintaxa corectată Selenium 4.x) ---
+    # --- Inițializare driver ---
     chrome_options = Options()
     chrome_options.add_argument("--headless")
     chrome_options.add_argument("--no-sandbox")
@@ -140,70 +100,115 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
 
     # Incepe scraping-ul
     try:
-        # --- Așteptare explicită ---
         wait = WebDriverWait(driver, 20)
         
+        # Ancora H1 (pentru a aștepta încărcarea)
+        match_title_xpath = '//*[@id="col-content"]/h1'
+        
+        # Ancora specifică pentru elementul părinte al rândurilor de cote (bazat pe structura absolută anterioară)
+        base_rows_xpath = '/html/body/div[1]/div[1]/div[1]/div/main/div[4]/div[2]/div[2]/div[2]'
+
         # ----------------------------------------------------
-        # ETAPA 1: Extrage cotele Over/Under (folosind link-ul direct)
+        # ETAPA 1: Extrage cotele Over/Under
         # ----------------------------------------------------
         driver.get(ou_link)
         
-        # Așteptăm ca titlul paginii să fie vizibil
-        match_title_xpath = '//*[@id="col-content"]/h1'
-        wait.until(EC.visibility_of_element_located((By.XPATH, match_title_xpath)))
-        
-        results['Match'] = ffi(driver, match_title_xpath)
-        
-        if not results['Match']:
-            results['Error'] = "Eroare de extracție: Titlul meciului nu a putut fi extras din primul link."
+        try:
+            # Așteaptă titlul (ancora)
+            wait.until(EC.visibility_of_element_located((By.XPATH, match_title_xpath)))
+        except:
+            results['Error'] = "Eroare la încărcarea paginii Over/Under (Ancora H1 nu a fost găsită)."
             driver.quit()
             return dict(results)
-        
-        # Așteptăm ca tabela de cote să fie încărcată
-        wait.until(EC.visibility_of_element_located((By.XPATH, '//*[@id="odds-data-table"]')))
+
+        # Așteaptă containerul de rânduri
+        wait.until(EC.visibility_of_element_located((By.XPATH, base_rows_xpath)))
         
         ou_lines = []
-        time.sleep(3) # Pauză suplimentară pentru a aștepta încărcarea cotelor (Hover-ul necesită stabilitate)
+        time.sleep(3) 
         
-        # Extrage liniile OU
+        # Extrage liniile OU (rândurile sunt div[j])
         for j in range(1, 101):
-            row_xpath = f'//*[@id="odds-data-table"]/div[1]/table/tbody/tr[{j}]'
-            bm_name = get_bookmaker_name(driver, row_xpath)
+            # Rândul complet: /html/body/.../div[2]/div[j]
+            row_container_xpath = f'{base_rows_xpath}/div[{j}]'
+            
+            # Verifică dacă rândul există și nu este header-ul
+            if not find_element(driver, By.XPATH, row_container_xpath) and j > 5: break
+            
+            # Extrage numele bookmakerului
+            bm_name = get_bookmaker_name_from_div(driver, row_container_xpath)
             
             if bm_name and TARGET_BOOKMAKER in bm_name:
-                data = extract_odds_for_line(driver, row_xpath, home_col=2, away_col=3) 
-                if data and data['Line'] != 'N/A':
-                    data['Bookmaker'] = bm_name 
-                    ou_lines.append(data)
-            if ffi(driver, row_xpath) is None and j > 5: break
+                
+                # NOU: Cotele sunt în celulele DIV imediate din interiorul rândului (div[1], div[2])
+                home_odd_xpath = f'{row_container_xpath}/div[1]' # Poziția Home/Over
+                away_odd_xpath = f'{row_container_xpath}/div[2]' # Poziția Away/Under
+                
+                close_home = fffi(driver, home_odd_xpath)
+                close_away = fffi(driver, away_odd_xpath)
+                
+                if close_home and close_away:
+                    line_raw_text = close_home 
+                    line_match = re.search(r'[+-]?\d+\.?\d*', line_raw_text)
+                    line = line_match.group(0) if line_match else 'N/A'
+                    
+                    data = {
+                        'Line': line,
+                        'Home_Over_Close': close_home,
+                        'Home_Over_Open': 'DEZACTIVAT (instabil)',
+                        'Away_Under_Close': close_away,
+                        'Away_Under_Open': 'DEZACTIVAT (instabil)',
+                        'Bookmaker': bm_name
+                    }
+                    if data['Line'] != 'N/A':
+                        ou_lines.append(data)
+        
         results['Over_Under_Lines'] = ou_lines
 
         # ----------------------------------------------------
-        # ETAPA 2: Extrage cotele Handicap (folosind link-ul direct)
+        # ETAPA 2: Extrage cotele Handicap
         # ----------------------------------------------------
         driver.get(ah_link)
         
-        # Așteptăm din nou ca tabela de cote să se încarce
-        wait.until(EC.visibility_of_element_located((By.XPATH, '//*[@id="odds-data-table"]')))
+        wait.until(EC.visibility_of_element_located((By.XPATH, base_rows_xpath)))
         
         handicap_lines = []
-        time.sleep(3) # Pauză suplimentară
+        time.sleep(3) 
 
-        # Extrage liniile AH
+        # Extrage liniile AH (Aceeași logică ca la OU)
         for j in range(1, 101):
-            row_xpath = f'//*[@id="odds-data-table"]/div[1]/table/tbody/tr[{j}]'
-            bm_name = get_bookmaker_name(driver, row_xpath)
+            row_container_xpath = f'{base_rows_xpath}/div[{j}]'
+            
+            if not find_element(driver, By.XPATH, row_container_xpath) and j > 5: break
+
+            bm_name = get_bookmaker_name_from_div(driver, row_container_xpath)
             
             if bm_name and TARGET_BOOKMAKER in bm_name:
-                data = extract_odds_for_line(driver, row_xpath, home_col=2, away_col=3) 
-                if data and data['Line'] != 'N/A':
-                    data['Bookmaker'] = bm_name 
-                    handicap_lines.append(data)
-            if ffi(driver, row_xpath) is None and j > 5: break
+                home_odd_xpath = f'{row_container_xpath}/div[1]' 
+                away_odd_xpath = f'{row_container_xpath}/div[2]' 
+                
+                close_home = fffi(driver, home_odd_xpath)
+                close_away = fffi(driver, away_odd_xpath)
+                
+                if close_home and close_away:
+                    line_raw_text = close_home 
+                    line_match = re.search(r'[+-]?\d+\.?\d*', line_raw_text)
+                    line = line_match.group(0) if line_match else 'N/A'
+                    
+                    data = {
+                        'Line': line,
+                        'Home_Over_Close': close_home,
+                        'Home_Over_Open': 'DEZACTIVAT (instabil)',
+                        'Away_Under_Close': close_away,
+                        'Away_Under_Open': 'DEZACTIVAT (instabil)',
+                        'Bookmaker': bm_name
+                    }
+                    if data['Line'] != 'N/A':
+                        handicap_lines.append(data)
+
         results['Handicap_Lines'] = handicap_lines
             
     except Exception as e:
-        # Afișăm eroarea generică, dar știm că acum este mai probabil o problemă de Xpath în interior
         results['Runtime_Error'] = f"A apărut o eroare neașteptată în timpul scraping-ului: {e}"
     
     finally:
