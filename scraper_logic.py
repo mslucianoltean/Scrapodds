@@ -1,4 +1,4 @@
-# scraper_logic.py (VERSIUNEA FINALĂ ȘI ULTRA-PRECISĂ - CU XPATH-URI CONFIRMATE)
+# scraper_logic.py (VERSIUNEA FINALĂ CU NOU CONTAINER DE BAZĂ)
 
 import os
 import time
@@ -16,7 +16,7 @@ from selenium.webdriver.support import expected_conditions as EC
 # ------------------------------------------------------------------------------
 # ⚙️ CONFIGURARE
 # ------------------------------------------------------------------------------
-TARGET_BOOKMAKER = "Betano.ro" # Actualizat la textul exact din HTML
+TARGET_BOOKMAKER = "Betano.ro" 
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
@@ -33,7 +33,6 @@ def find_element(driver, by_method, locator):
 def ffi(driver, xpath):
     """Returnează textul elementului de la xpath dacă există."""
     element = find_element(driver, By.XPATH, xpath)
-    # Extragerea textului cotei din <p class="odds-text">
     return element.text.strip() if element else None
 
 def ffi2(driver, xpath):
@@ -56,7 +55,6 @@ def get_bookmaker_name_from_row(row_element):
 
 def fffi(driver, xpath):
     """Returnează cota de închidere (textul din p tag)."""
-    # XPath-ul primit viza direct <p data-v-4244f6fd="" class="odds-text">1.14</p>
     return ffi(driver, xpath) 
 
 def get_opening_odd_from_click(driver, element_to_click_xpath):
@@ -127,14 +125,14 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
     try:
         wait = WebDriverWait(driver, 30)
         
-        base_rows_xpath = '/html/body/div[1]/div[1]/div[1]/div/main/div[4]/div[2]/div[2]/div[2]'
+        # NOU CONTAINER PRINCIPAL
+        base_rows_xpath = '/html/body/div[1]/div[1]/div[1]/div/main/div[4]/div[2]/div[2]'
         
         # Căi relative (din interiorul rândului Betano) - vizează direct <p>
         OU_HOME_ODD_REL_PATH = '/div[3]/div/div/p' 
         OU_AWAY_ODD_REL_PATH = '/div[4]/div/div/p' 
         
         # Căutăm elementul care conține numele bookmaker-ului
-        # Aceasta găsește div-ul părinte care are clasa 'table-main__row--details-line'
         BETANO_ROW_XPATH_TEMPLATE = f'//a[contains(text(), "{TARGET_BOOKMAKER}")]/ancestor::div[contains(@class, "table-main__row--details-line")]'
         
         # Extrage Linia (din rândul Părinte)
@@ -158,6 +156,7 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         # ----------------------------
 
         try:
+            # Așteptăm noul container principal
             wait.until(EC.visibility_of_element_located((By.XPATH, base_rows_xpath)))
         except:
             results['Error'] = f"Eroare la încărcarea paginii Over/Under (Containerul de cote '{base_rows_xpath}' nu a fost găsit în 30s)."
@@ -167,8 +166,9 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         ou_lines = []
         time.sleep(3) 
         
+        # Iterăm până găsim o linie Betano funcțională
         for j in range(1, 101): 
-            line_row_xpath = f'{base_rows_xpath}/div[{j}]'
+            line_row_xpath = f'{base_rows_xpath}/div[{j}]' # Linia individuală
             line_row_element = find_element(driver, By.XPATH, line_row_xpath)
             
             if not line_row_element: break
