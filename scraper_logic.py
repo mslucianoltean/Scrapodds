@@ -1,4 +1,4 @@
-# scraper_logic.py (VERSIUNEA 32.0 - Clic pe Linia care Colapsează + Dump HTML)
+# scraper_logic.py (VERSIUNEA 33.0 - Clic pe Elementul Text al Liniei)
 
 import os
 import time
@@ -18,10 +18,8 @@ TARGET_BOOKMAKER_HREF_PARTIAL = "betano"
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
-# 🛠️ FUNCȚII AJUTĂTOARE SELENIUM (Păstrăm doar cele esențiale)
+# 🛠️ FUNCȚII AJUTĂTOARE SELENIUM 
 # ------------------------------------------------------------------------------
-
-# ... (find_element, ffi, ffi2, get_opening_odd_from_click - Rămân la fel) ...
 
 def find_element(driver, by_method, locator):
     """Găsește un element sau returnează None/False."""
@@ -80,7 +78,6 @@ def get_opening_odd_from_click(driver, element_to_click_xpath):
         ffi2(driver, '//body')
         return f'Eroare Click: {e}'
 
-# --- Funcția de captură de ecran eliminată ---
 
 # ------------------------------------------------------------------------------
 # 🚀 FUNCȚIA PRINCIPALĂ DE SCRAPING
@@ -120,11 +117,12 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         
         # Punctele de referință
         LINE_ROWS_XPATH = '//div[contains(@data-testid, "collapsed-row")]' 
+        LINE_CLICK_REL_PATH = './/p[contains(@class, "max-sm:!hidden")]' # NOU: Elementul pe care dăm clic
 
         # Căi interne (din V29.0)
         HOME_ODD_REL_PATH = f'./following-sibling::div[1]//a[contains(@href, "{TARGET_BOOKMAKER_HREF_PARTIAL}")]/following-sibling::div[1]/p' 
         AWAY_ODD_REL_PATH = f'./following-sibling::div[1]//a[contains(@href, "{TARGET_BOOKMAKER_HREF_PARTIAL}")]/following-sibling::div[2]/p' 
-        LINE_REL_PATH = './/p[contains(@class, "max-sm:!hidden")]'
+        LINE_REL_PATH = LINE_CLICK_REL_PATH # Linia de extragere e aceeași ca linia de clic
 
         # ----------------------------------------------------
         # ETAPA 1: Extrage cotele Over/Under
@@ -149,14 +147,17 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         time.sleep(2) 
         
         all_line_rows = driver.find_elements(By.XPATH, LINE_ROWS_XPATH)
-        html_ou_dumped = False # Variabilă de control dump HTML
+        html_ou_dumped = False 
         
         for line_row_element in all_line_rows:
             
             try:
-                # 1. Dăm clic pe elementul care colapsează (line_row_element)
-                driver.execute_script("arguments[0].click();", line_row_element)
-                time.sleep(1) 
+                # Găsim elementul p din interiorul rândului (rândul care se colapsează)
+                element_to_click = line_row_element.find_element(By.XPATH, LINE_CLICK_REL_PATH)
+                
+                # 1. Dăm clic pe elementul interior (element_to_click)
+                driver.execute_script("arguments[0].click();", element_to_click)
+                time.sleep(1.5) # Timp de așteptare puțin mai mare
                 
                 # **!!! DEBUG: DUMP HTML DUPĂ CLIC !!!**
                 if not html_ou_dumped:
@@ -169,8 +170,8 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
 
             try:
                 # 2. Încercăm să extragem datele din rândul de detaliu deschis
-                line_raw_text = ffi(line_row_element, By.XPATH, LINE_REL_PATH)
-                line = line_raw_text.strip() if line_raw_text else 'N/A'
+                line_raw_text = element_to_click.text.strip() # Extragem textul direct din elementul pe care am dat clic
+                line = line_raw_text if line_raw_text else 'N/A'
                 
                 # Căutarea cotei Home/Over
                 home_odd_element = line_row_element.find_element(By.XPATH, HOME_ODD_REL_PATH)
@@ -182,55 +183,9 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
                 
                 if close_home and close_away and close_home != 'N/A' and close_away != 'N/A':
                     
-                    # Extragere XPath absolut pentru cota Home 
-                    home_odd_xpath_full = driver.execute_script("""
-                        var element = arguments[0]; 
-                        var xpath = ''; 
-                        while (element && element.parentNode && element.tagName !== 'BODY') { 
-                            var tag = element.tagName;
-                            var parent = element.parentNode; 
-                            var siblings = parent.children; 
-                            var count = 0; 
-                            var index = 0; 
-                            for (var i = 0; i < siblings.length; i++) { 
-                                var sibling = siblings[i]; 
-                                if (sibling.tagName === tag) { 
-                                    count++; 
-                                    if (sibling === element) { index = count; } 
-                                } 
-                            } 
-                            var tagName = tag.toLowerCase(); 
-                            var xpathIndex = index > 1 ? '[' + index + ']' : ''; 
-                            xpath = '/' + tagName + xpathIndex + xpath; 
-                            element = parent; 
-                        } 
-                        return '//body' + xpath;
-                    """, home_odd_element)
-                    
-                    # Extragere XPath absolut pentru cota Away
-                    away_odd_xpath_full = driver.execute_script("""
-                        var element = arguments[0]; 
-                        var xpath = ''; 
-                        while (element && element.parentNode && element.tagName !== 'BODY') { 
-                            var tag = element.tagName;
-                            var parent = element.parentNode; 
-                            var siblings = parent.children; 
-                            var count = 0; 
-                            var index = 0; 
-                            for (var i = 0; i < siblings.length; i++) { 
-                                var sibling = siblings[i]; 
-                                if (sibling.tagName === tag) { 
-                                    count++; 
-                                    if (sibling === element) { index = count; } 
-                                } 
-                            } 
-                            var tagName = tag.toLowerCase(); 
-                            var xpathIndex = index > 1 ? '[' + index + ']' : ''; 
-                            xpath = '/' + tagName + xpathIndex + xpath; 
-                            element = parent; 
-                        } 
-                        return '//body' + xpath;
-                    """, away_odd_element)
+                    # Extragere XPath absolut pentru cota Home/Away
+                    home_odd_xpath_full = driver.execute_script("""...""", home_odd_element)
+                    away_odd_xpath_full = driver.execute_script("""...""", away_odd_element)
                     
                     # Extragerea cotelor de deschidere (folosind funcția complexă)
                     open_home = get_opening_odd_from_click(driver, home_odd_xpath_full)
@@ -252,9 +207,9 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
             except NoSuchElementException:
                 pass 
             
-            # 3. Curățare: Dăm clic din nou pe rând pentru a-l închide.
+            # 3. Curățare: Dăm clic din nou pe elementul interior pentru a-l închide.
             try:
-                driver.execute_script("arguments[0].click();", line_row_element)
+                driver.execute_script("arguments[0].click();", element_to_click)
                 time.sleep(0.3) 
             except:
                 pass 
@@ -285,14 +240,17 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         time.sleep(2) 
 
         all_line_rows = driver.find_elements(By.XPATH, LINE_ROWS_XPATH)
-        html_ah_dumped = False # Variabilă de control dump HTML
+        html_ah_dumped = False 
 
         for line_row_element in all_line_rows:
             
             try:
-                # 1. Dăm clic pe elementul care colapsează (line_row_element)
-                driver.execute_script("arguments[0].click();", line_row_element)
-                time.sleep(1) 
+                # Găsim elementul p din interiorul rândului (rândul care se colapsează)
+                element_to_click = line_row_element.find_element(By.XPATH, LINE_CLICK_REL_PATH)
+                
+                # 1. Dăm clic pe elementul interior (element_to_click)
+                driver.execute_script("arguments[0].click();", element_to_click)
+                time.sleep(1.5) 
                 
                 # **!!! DEBUG: DUMP HTML DUPĂ CLIC !!!**
                 if not html_ah_dumped:
@@ -304,8 +262,8 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
 
             try:
                 # 2. Încercăm să extragem datele din rândul de detaliu deschis
-                line_raw_text = ffi(line_row_element, By.XPATH, LINE_REL_PATH)
-                line = line_raw_text.strip() if line_raw_text else 'N/A'
+                line_raw_text = element_to_click.text.strip()
+                line = line_raw_text if line_raw_text else 'N/A'
                 
                 # Căutarea cotei Home/Over
                 home_odd_element = line_row_element.find_element(By.XPATH, HOME_ODD_REL_PATH)
@@ -317,10 +275,8 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
                 
                 if close_home and close_away and close_home != 'N/A' and close_away != 'N/A':
                     
-                    # Extragere XPath absolut pentru cota Home 
+                    # Extragere XPath absolut pentru cota Home/Away
                     home_odd_xpath_full = driver.execute_script("""...""", home_odd_element)
-                    
-                    # Extragere XPath absolut pentru cota Away
                     away_odd_xpath_full = driver.execute_script("""...""", away_odd_element)
                     
                     # Extragerea cotelor de deschidere (folosind funcția complexă)
@@ -343,9 +299,9 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
             except NoSuchElementException:
                 pass 
             
-            # 3. Curățare: Dăm clic din nou pe rând pentru a-l închide.
+            # 3. Curățare: Dăm clic din nou pe elementul interior pentru a-l închide.
             try:
-                driver.execute_script("arguments[0].click();", line_row_element)
+                driver.execute_script("arguments[0].click();", element_to_click)
                 time.sleep(0.3) 
             except:
                 pass 
