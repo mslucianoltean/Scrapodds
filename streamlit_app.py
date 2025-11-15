@@ -104,7 +104,7 @@ if st.button("Start Scraping", type="primary"):
             elif 'Error_Over_Under' in results:
                 st.warning(f"⚠️ Eroare la OU: {results['Error_Over_Under']}")
 
-            st.markdown("---")
+                st.markdown("---")
 
                 st.markdown("---")
                 
