@@ -1,171 +1,373 @@
-import requests
-from bs4 import BeautifulSoup
-import re
-import json
-import time
+# scraper_logic.py (VERSIUNEA 20.0 - SCROLL & CLIC FALS STABIL)
 
-def scrape_basketball_match_full_data_filtered(ou_link, ah_link):  # NUMELE ORIGINAL!
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-    }
-    
-    results = {
-        'Match': 'Scraping complet OddsPortal',
-        'Over_Under_Lines': [],
-        'Handicap_Lines': []
-    }
-    
-    def extract_betano_odds_from_url(url, market_type='ou'):
-        """Extrage cotele Betano dintr-un URL direct"""
-        try:
-            print(f"  Accesez URL pentru cote: {url}")
-            response = requests.get(url, headers=headers)
-            soup = BeautifulSoup(response.content, 'html.parser')
-            
-            # Găsim rândul Betano
-            betano_row = None
-            betano_links = soup.find_all('a', href=re.compile(r'betano', re.IGNORECASE))
-            for link in betano_links:
-                parent_tr = link.find_parent('tr')
-                if parent_tr:
-                    betano_row = parent_tr
-                    break
-            
-            if not betano_row:
-                all_rows = soup.find_all('tr')
-                for row in all_rows:
-                    if 'betano' in row.text.lower():
-                        betano_row = row
-                        break
-            
-            if betano_row:
-                print(f"  ✅ Rand Betano gasit!")
-                odds_elements = betano_row.find_all('p', class_='odds-text line-through')
-                
-                if market_type == 'ou':
-                    over_close = odds_elements[0].get_text(strip=True) if len(odds_elements) > 0 else 'N/A'
-                    under_close = odds_elements[1].get_text(strip=True) if len(odds_elements) > 1 else 'N/A'
-                    return over_close, under_close
-                
-                elif market_type == 'ah':
-                    home_close = odds_elements[0].get_text(strip=True) if len(odds_elements) > 0 else 'N/A'
-                    away_close = odds_elements[1].get_text(strip=True) if len(odds_elements) > 1 else 'N/A'
-                    return home_close, away_close
-            
-            print(f"  ❌ Rand Betano negasit")
-            return 'N/A', 'N/A'
-            
-        except Exception as e:
-            print(f"  ❌ Eroare extragere cote: {e}")
-            return 'N/A', 'N/A'
-    
+import os
+import time
+from collections import defaultdict
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service 
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.common.exceptions import NoSuchElementException, TimeoutException
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC 
+
+# ------------------------------------------------------------------------------
+# ⚙️ CONFIGURARE
+# ------------------------------------------------------------------------------
+TARGET_BOOKMAKER_HREF_PARTIAL = "betano" 
+# ------------------------------------------------------------------------------
+
+# ------------------------------------------------------------------------------
+# 🛠️ FUNCȚII AJUTĂTOARE SELENIUM 
+# ------------------------------------------------------------------------------
+
+def find_element(driver, by_method, locator):
+    """Găsește un element sau returnează None/False."""
     try:
-        # OVER/UNDER
-        print("=== OVER/UNDER - EXTRAGERE LINII ===")
-        response = requests.get(ou_link, headers=headers)
-        soup = BeautifulSoup(response.content, 'html.parser')
+        return driver.find_element(by_method, locator)
+    except NoSuchElementException:
+        return None
+
+def ffi(element_or_driver, by_method, locator):
+    """Returnează textul elementului de la locator dacă există. Lucrează cu Driver sau Element."""
+    try:
+        element = element_or_driver.find_element(by_method, locator)
+        return element.text.strip()
+    except NoSuchElementException:
+        return None
+
+def ffi2(driver, xpath):
+    """Dă click pe elementul de la xpath dacă există (folosind JS)."""
+    try:
+        # Așteptăm elementul să fie click-uibil
+        wait_short = WebDriverWait(driver, 10) 
+        clickable_element = wait_short.until(EC.element_to_be_clickable((By.XPATH, xpath)))
+        driver.execute_script("arguments[0].click();", clickable_element)
+        return True
+    except TimeoutException:
+        print(f"DEBUG: Elementul {xpath} nu a fost click-uibil (Timeout).")
+        return False 
+    except Exception as e:
+        print(f"DEBUG: Eroare la ffi2 pe {xpath}: {e}")
+        return False
+
+def get_opening_odd_from_click(driver, element_to_click_xpath):
+    """Simulează click pe cota de închidere, așteaptă popup-ul și extrage cota de deschidere."""
+    
+    # Navigăm un nivel mai sus pentru a găsi div-ul click-uibil (părintele p/span)
+    div_to_click_xpath = '/'.join(element_to_click_xpath.split('/')[:-2])
+    
+    if not ffi2(driver, div_to_click_xpath):
+        return 'Eroare: Cota Close nu a putut fi apăsată'
+
+    try:
+        time.sleep(0.5) 
         
-        lines_container = soup.select_one('div.min-md\\:px-\\[10px\\]')
-        ou_lines = []
+        popup_open_odd_xpath = '//*[@id="tooltip_v"]//div[2]/p[@class="odds-text"]'
         
-        if lines_container:
-            line_elements = lines_container.find_all('p', string=re.compile(r'Over/Under'))
-            print(f"Linii Over/Under găsite: {len(line_elements)}")
-            
-            for i, element in enumerate(line_elements[:10]):
-                try:
-                    line_text = element.get_text(strip=True)
-                    print(f"\n--- Linia {i+1}: {line_text} ---")
-                    
-                    line_match = re.search(r'Over/Under\s*\+?(\d+\.?\d*)', line_text)
-                    if line_match:
-                        line_value = line_match.group(1)
-                        display_line = f"+{line_value}"
-                        print(f"✓ Valoare linie: {display_line}")
-                        
-                        base_url = ou_link.split('#')[0]
-                        direct_url = f"{base_url}#over-under;1;{line_value};0"
-                        print(f"✓ URL construit: {direct_url}")
-                        
-                        over_close, under_close = extract_betano_odds_from_url(direct_url, 'ou')
-                        print(f"✓ Cote gasite: Over={over_close}, Under={under_close}")
-                        
-                        ou_lines.append({
-                            'Line': display_line,
-                            'Direct_URL': direct_url,
-                            'Over_Close': over_close,
-                            'Under_Close': under_close,
-                            'Bookmaker': 'Betano.ro'
-                        })
-                        
-                        time.sleep(1)
-                        
-                except Exception as e:
-                    print(f"✗ Eroare la linia {i+1}: {e}")
-                    continue
+        wait = WebDriverWait(driver, 5) 
+        opening_odd_element = wait.until(EC.presence_of_element_located((By.XPATH, popup_open_odd_xpath)))
         
-        results['Over_Under_Lines'] = ou_lines
+        opening_odd_text = opening_odd_element.text.strip()
         
-        # ASIAN HANDICAP
-        print("\n\n=== ASIAN HANDICAP - EXTRAGERE LINII ===")
-        response_ah = requests.get(ah_link, headers=headers)
-        soup_ah = BeautifulSoup(response_ah.content, 'html.parser')
+        ffi2(driver, '//body') 
+        time.sleep(0.2) 
         
-        ah_container = soup_ah.select_one('div.min-md\\:px-\\[10px\\]')
-        ah_lines = []
-        
-        if ah_container:
-            ah_elements = ah_container.find_all('p', string=re.compile(r'Asian Handicap'))
-            print(f"Linii Asian Handicap găsite: {len(ah_elements)}")
-            
-            for i, element in enumerate(ah_elements[:10]):
-                try:
-                    line_text = element.get_text(strip=True)
-                    print(f"\n--- Linia AH {i+1}: {line_text} ---")
-                    
-                    line_match = re.search(r'Asian Handicap\s*([+-]?\d+\.?\d*)', line_text)
-                    if line_match:
-                        line_value = line_match.group(1)
-                        clean_line = line_value.replace('+', '').replace('-', '')
-                        print(f"✓ Valoare linie AH: {line_value}")
-                        
-                        base_url_ah = ah_link.split('#')[0]
-                        direct_ah_url = f"{base_url_ah}#ah;1;{clean_line};0"
-                        print(f"✓ URL AH construit: {direct_ah_url}")
-                        
-                        home_close, away_close = extract_betano_odds_from_url(direct_ah_url, 'ah')
-                        print(f"✓ Cote AH gasite: Home={home_close}, Away={away_close}")
-                        
-                        ah_lines.append({
-                            'Line': line_value,
-                            'Direct_URL': direct_ah_url,
-                            'Home_Close': home_close,
-                            'Away_Close': away_close,
-                            'Bookmaker': 'Betano.ro'
-                        })
-                        
-                        time.sleep(1)
-                        
-                except Exception as e:
-                    print(f"✗ Eroare la linia AH {i+1}: {e}")
-                    continue
-        
-        results['Handicap_Lines'] = ah_lines
-        
-        # Debug info
-        results['Debug'] = {
-            'ou_lines_found': len(ou_lines),
-            'ah_lines_found': len(ah_lines),
-            'strategy': 'Parsing rapid cu BeautifulSoup',
-            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S')
-        }
+        return opening_odd_text
+
+    except TimeoutException:
+        ffi2(driver, '//body')
+        return 'Eroare: Popup-ul de deschidere nu a apărut (Timeout)'
+    except Exception as e:
+        ffi2(driver, '//body')
+        return f'Eroare Click: {e}'
+
+# ------------------------------------------------------------------------------
+# 🚀 FUNCȚIA PRINCIPALĂ DE SCRAPING
+# ------------------------------------------------------------------------------
+
+def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
+    
+    global TARGET_BOOKMAKER_HREF_PARTIAL 
+    
+    results = defaultdict(dict)
+    results['Match'] = 'Scraping activat'
+    driver = None 
+    
+    # --- Inițializare driver ---
+    chrome_options = Options()
+    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--window-size=1920,1080") 
+    
+    chrome_options.binary_location = os.environ.get("GOOGLE_CHROME_BIN", "/usr/bin/chromium")
+    chromedriver_path = os.environ.get("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
+
+    try:
+        service = Service(chromedriver_path)
+        driver = webdriver.Chrome(service=service, options=chrome_options)
         
     except Exception as e:
-        results['Error'] = f"Eroare generala: {str(e)}"
-        print(f"❌ Eroare generala: {e}")
-    
-    return results
+        results['Error'] = f"Eroare la inițializarea driverului Headless. Detalii: {e}"
+        return dict(results)
 
-# NU mai este nevoie de această funcție separată - am unit totul
-# def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
-#     return scrape_oddsportal_complete(ou_link, ah_link)
+    # Incepe scraping-ul
+    try:
+        wait = WebDriverWait(driver, 30)
+        
+        # Punctele de referință
+        OU_DIV_TEXT_XPATH = "//div[text()='Over/Under']" 
+        AH_DIV_TEXT_XPATH = "//div[text()='Asian Handicap']" 
+        LINE_ROWS_XPATH = '//div[contains(@class, "table-main__row--details-line-wrapper")]'
+
+        # Căi interne
+        OU_HOME_ODD_REL_PATH = '/div[3]/div/div/p' 
+        OU_AWAY_ODD_REL_PATH = '/div[4]/div/div/p' 
+        BETANO_ROW_REL_XPATH = f'.//a[contains(@href, "{TARGET_BOOKMAKER_HREF_PARTIAL}")]/ancestor::div[contains(@class, "table-main__row--details-line")]'
+        LINE_REL_PATH = './/span[contains(@class, "table-main__detail-line-more")]'
+
+        # ----------------------------------------------------
+        # ETAPA 1: Extrage cotele Over/Under
+        # ----------------------------------------------------
+        driver.get(ou_link)
+        
+        # ACȚIUNE 1: Așteptăm body-ul și facem refresh + Scroll
+        try:
+            wait.until(EC.presence_of_element_located((By.XPATH, '//body')))
+            driver.refresh()
+            time.sleep(2) 
+            # Forțăm scroll-ul sus pentru vizibilitatea tab-urilor
+            driver.execute_script("window.scrollTo(0, 0);")
+            time.sleep(8) # Așteptare lungă pentru randarea inițială
+
+            # ACȚIUNE 2: CLIC FALS (AH) și CLIC CORECT (OU) pentru a forța randarea
+            
+            # 2a. Încercăm să dăm clic pe un tab diferit (Asian Handicap)
+            if not ffi2(driver, AH_DIV_TEXT_XPATH):
+                # Nu e o eroare critică, dar e bine de știut că navigarea nu merge
+                print("DEBUG: Clicul fals pe Asian Handicap a eșuat sau nu a fost necesar.")
+
+            time.sleep(2) # Așteptăm după clicul fals
+
+            # 2b. Clic pe tabul Over/Under 
+            if not ffi2(driver, OU_DIV_TEXT_XPATH):
+                 results['Error'] = f"Eroare: Nu a putut fi găsit/apăsat tabul Over/Under ('{OU_DIV_TEXT_XPATH}')."
+                 driver.quit()
+                 return dict(results)
+                 
+            time.sleep(2) # Așteptăm după clicul corect
+            
+            # ACȚIUNE 3: Așteptăm liniile de cote
+            wait.until(EC.visibility_of_element_located((By.XPATH, LINE_ROWS_XPATH)))
+
+        except:
+            results['Error'] = f"Eroare la încărcarea paginii Over/Under (Eșec în a găsi liniile de cote '{LINE_ROWS_XPATH}' după clicul pe tabul OU)."
+            driver.quit()
+            return dict(results)
+        
+        ou_lines = []
+        time.sleep(3) 
+        
+        # Căutăm toate rândurile de linii de cote (elemente)
+        all_line_rows = driver.find_elements(By.XPATH, LINE_ROWS_XPATH)
+        
+        # Iterăm prin rândurile găsite și extragem cotele
+        for line_row_element in all_line_rows:
+            
+            driver.execute_script("arguments[0].click();", line_row_element)
+            time.sleep(1.5) 
+
+            try:
+                betano_row_element = line_row_element.find_element(By.XPATH, BETANO_ROW_REL_XPATH)
+                
+                line_raw_text = ffi(line_row_element, By.XPATH, LINE_REL_PATH)
+                line = line_raw_text.strip() if line_raw_text else 'N/A'
+                
+                bm_name_element = betano_row_element.find_element(By.XPATH, f'.//p[contains(text(), "Betano")]')
+                bm_name = bm_name_element.text.strip() if bm_name_element else "Betano.ro"
+
+                betano_row_xpath_full = driver.execute_script("""
+                    var element = arguments[0]; 
+                    var xpath = ''; 
+                    while (element && element.parentNode && element.tagName !== 'BODY') { 
+                        var tag = element.tagName;
+                        var parent = element.parentNode; 
+                        var siblings = parent.children; 
+                        var count = 0; 
+                        var index = 0; 
+                        for (var i = 0; i < siblings.length; i++) { 
+                            var sibling = siblings[i]; 
+                            if (sibling.tagName === tag) { 
+                                count++; 
+                                if (sibling === element) { index = count; } 
+                            } 
+                        } 
+                        var tagName = tag.toLowerCase(); 
+                        var xpathIndex = index > 1 ? '[' + index + ']' : ''; 
+                        xpath = '/' + tagName + xpathIndex + xpath; 
+                        element = parent; 
+                    } 
+                    return '//body' + xpath;
+                """, betano_row_element)
+
+
+                home_odd_xpath = betano_row_xpath_full + OU_HOME_ODD_REL_PATH
+                away_odd_xpath = betano_row_xpath_full + OU_AWAY_ODD_REL_PATH
+                
+                close_home = ffi(driver, By.XPATH, home_odd_xpath) 
+                close_away = ffi(driver, By.XPATH, away_odd_xpath) 
+                
+                if close_home and close_away and close_home != 'N/A' and close_away != 'N/A':
+                    
+                    open_home = get_opening_odd_from_click(driver, home_odd_xpath)
+                    time.sleep(0.5)
+                    open_away = get_opening_odd_from_click(driver, away_odd_xpath)
+                    
+                    data = {
+                        'Line': line,
+                        'Home_Over_Close': close_home,
+                        'Home_Over_Open': open_home,
+                        'Away_Under_Close': close_away,
+                        'Away_Under_Open': open_away,
+                        'Bookmaker': bm_name
+                    }
+                    if data['Line'] != 'N/A':
+                        ou_lines.append(data)
+                        
+                        driver.execute_script("arguments[0].click();", line_row_element)
+                        break 
+                        
+            except NoSuchElementException:
+                pass 
+            
+            driver.execute_script("arguments[0].click();", line_row_element)
+            time.sleep(0.5) 
+        
+        results['Over_Under_Lines'] = ou_lines
+
+        # ----------------------------------------------------
+        # ETAPA 2: Extrage cotele Handicap 
+        # ----------------------------------------------------
+        
+        driver.get(ah_link)
+        
+        # ACȚIUNE 1: Așteptăm body-ul și facem refresh + Scroll
+        try:
+            wait.until(EC.presence_of_element_located((By.XPATH, '//body')))
+            driver.refresh()
+            time.sleep(2) 
+            driver.execute_script("window.scrollTo(0, 0);")
+            time.sleep(8) 
+            
+            # ACȚIUNE 2: CLIC FALS (OU) și CLIC CORECT (AH)
+            
+            # 2a. Încercăm să dăm clic pe un tab diferit (Over/Under)
+            if not ffi2(driver, OU_DIV_TEXT_XPATH):
+                print("DEBUG: Clicul fals pe Over/Under a eșuat sau nu a fost necesar.")
+            time.sleep(2) 
+            
+            # 2b. Clic pe tabul Asian Handicap
+            if not ffi2(driver, AH_DIV_TEXT_XPATH):
+                 results['Error_AH'] = f"Eroare: Nu a putut fi găsit/apăsat tabul Asian Handicap ('{AH_DIV_TEXT_XPATH}')."
+                 driver.quit()
+                 return dict(results)
+                 
+            time.sleep(2) 
+            
+            # ACȚIUNE 3: Așteptăm liniile de cote
+            wait.until(EC.visibility_of_element_located((By.XPATH, LINE_ROWS_XPATH)))
+            
+        except:
+            results['Error_AH'] = f"Eroare la încărcarea paginii Asian Handicap (Nicio linie de cote '{LINE_ROWS_XPATH}' nu a fost găsită în 30s după clic pe tabul AH)."
+            driver.quit()
+            return dict(results)
+        
+        handicap_lines = []
+        time.sleep(3) 
+
+        all_line_rows = driver.find_elements(By.XPATH, LINE_ROWS_XPATH)
+
+        # Extrage liniile AH 
+        for line_row_element in all_line_rows:
+            
+            driver.execute_script("arguments[0].click();", line_row_element)
+            time.sleep(1.5) 
+
+            try:
+                betano_row_element = line_row_element.find_element(By.XPATH, BETANO_ROW_REL_XPATH)
+                
+                line_raw_text = ffi(line_row_element, By.XPATH, LINE_REL_PATH)
+                line = line_raw_text.strip() if line_raw_text else 'N/A'
+                
+                bm_name_element = betano_row_element.find_element(By.XPATH, f'.//p[contains(text(), "Betano")]')
+                bm_name = bm_name_element.text.strip() if bm_name_element else "Betano.ro"
+
+                betano_row_xpath_full = driver.execute_script("""
+                    var element = arguments[0]; 
+                    var xpath = ''; 
+                    while (element && element.parentNode && element.tagName !== 'BODY') { 
+                        var tag = element.tagName;
+                        var parent = element.parentNode; 
+                        var siblings = parent.children; 
+                        var count = 0; 
+                        var index = 0; 
+                        for (var i = 0; i < siblings.length; i++) { 
+                            var sibling = siblings[i]; 
+                            if (sibling.tagName === tag) { 
+                                count++; 
+                                if (sibling === element) { index = count; } 
+                            } 
+                        } 
+                        var tagName = tag.toLowerCase(); 
+                        var xpathIndex = index > 1 ? '[' + index + ']' : ''; 
+                        xpath = '/' + tagName + xpathIndex + xpath; 
+                        element = parent; 
+                    } 
+                    return '//body' + xpath;
+                """, betano_row_element)
+
+
+                home_odd_xpath = betano_row_xpath_full + OU_HOME_ODD_REL_PATH
+                away_odd_xpath = betano_row_xpath_full + OU_AWAY_ODD_REL_PATH
+                
+                close_home = ffi(driver, By.XPATH, home_odd_xpath)
+                close_away = ffi(driver, By.XPATH, away_odd_xpath)
+                
+                if close_home and close_away and close_home != 'N/A' and close_away != 'N/A':
+                    
+                    open_home = get_opening_odd_from_click(driver, home_odd_xpath)
+                    time.sleep(0.5)
+                    open_away = get_opening_odd_from_click(driver, away_odd_xpath)
+
+                    data = {
+                        'Line': line,
+                        'Home_Over_Close': close_home,
+                        'Home_Over_Open': open_home,
+                        'Away_Under_Close': close_away,
+                        'Away_Under_Open': open_away,
+                        'Bookmaker': bm_name
+                    }
+                    if data['Line'] != 'N/A':
+                        handicap_lines.append(data)
+                        
+                        driver.execute_script("arguments[0].click();", line_row_element)
+                        break
+
+            except NoSuchElementException:
+                pass 
+            
+            driver.execute_script("arguments[0].click();", line_row_element)
+            time.sleep(0.5) 
+
+        results['Handicap_Lines'] = handicap_lines
+            
+    except Exception as e:
+        results['Runtime_Error'] = f"A apărut o eroare neașteptată în timpul scraping-ului: {e}"
+    
+    finally:
+        if driver:
+            driver.quit() 
+            
+    return dict(results)
