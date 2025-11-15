@@ -1,4 +1,4 @@
-# scraper_logic.py (VERSIUNEA 25.0 - DEBUG: XPath agresiv pe rândul Betano)
+# scraper_logic.py (VERSIUNEA 26.0 - DEBUG: Captură de ecran după forțarea CSS)
 
 import os
 import time
@@ -18,7 +18,7 @@ TARGET_BOOKMAKER_HREF_PARTIAL = "betano"
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
-# 🛠️ FUNCȚII AJUTĂTOARE SELENIUM (Rămân neschimbate)
+# 🛠️ FUNCȚII AJUTĂTOARE SELENIUM 
 # ------------------------------------------------------------------------------
 
 def find_element(driver, by_method, locator):
@@ -77,6 +77,14 @@ def get_opening_odd_from_click(driver, element_to_click_xpath):
     except Exception as e:
         ffi2(driver, '//body')
         return f'Eroare Click: {e}'
+
+def save_screenshot(driver, filename="debug_screenshot.png"):
+    """Salvează o captură de ecran pentru debugging."""
+    try:
+        driver.save_screenshot(filename)
+        return f"Captura de ecran salvată ca: {filename}"
+    except Exception as e:
+        return f"Eroare la salvarea capturii de ecran: {e}"
 
 # ------------------------------------------------------------------------------
 # 🚀 FUNCȚIA PRINCIPALĂ DE SCRAPING
@@ -149,6 +157,7 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         time.sleep(3) 
         
         all_line_rows = driver.find_elements(By.XPATH, LINE_ROWS_XPATH)
+        screenshot_ou_done = False # Variabilă de control screenshot OU
         
         # Iterăm prin rândurile găsite și extragem cotele
         for line_row_element in all_line_rows:
@@ -170,9 +179,15 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
             """, line_row_element)
 
             time.sleep(1.5) 
-
+            
+            # **SALVARE CAPTURĂ DE ECRAN PENTRU DEBUG**
+            if not screenshot_ou_done:
+                screenshot_path = save_screenshot(driver, "debug_ou_open_line.png")
+                results['Debug_Screenshot_OU'] = screenshot_path
+                screenshot_ou_done = True
+            
             try:
-                # Căutarea rândului Betano folosind NOUL XPath
+                # Căutarea rândului Betano
                 betano_row_element = line_row_element.find_element(By.XPATH, BETANO_ROW_REL_XPATH)
                 
                 line_raw_text = ffi(line_row_element, By.XPATH, LINE_REL_PATH)
@@ -268,6 +283,7 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         time.sleep(3) 
 
         all_line_rows = driver.find_elements(By.XPATH, LINE_ROWS_XPATH)
+        screenshot_ah_done = False # Variabilă de control screenshot AH
 
         # Extrage liniile AH 
         for line_row_element in all_line_rows:
@@ -288,6 +304,12 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
                 }
             """, line_row_element)
             time.sleep(1.5) 
+
+            # **SALVARE CAPTURĂ DE ECRAN PENTRU DEBUG**
+            if not screenshot_ah_done:
+                screenshot_path = save_screenshot(driver, "debug_ah_open_line.png")
+                results['Debug_Screenshot_AH'] = screenshot_path
+                screenshot_ah_done = True
 
             try:
                 # Căutarea rândului Betano
