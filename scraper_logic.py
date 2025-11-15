@@ -1,4 +1,4 @@
-# scraper_logic.py (VERSIUNEA 34.0 - Micro-HTML Dump din Elementul Detaliat)
+# scraper_logic.py (VERSIUNEA 35.0 - Corecția XPath-ului de Extracție)
 
 import os
 import time
@@ -14,15 +14,13 @@ from selenium.webdriver.support import expected_conditions as EC
 # ------------------------------------------------------------------------------
 # ⚙️ CONFIGURARE
 # ------------------------------------------------------------------------------
-TARGET_BOOKMAKER_HREF_PARTIAL = "betano" 
+TARGET_BOOKMAKER_NAME = "Betano.ro" 
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
-# 🛠️ FUNCȚII AJUTĂTOARE SELENIUM 
+# 🛠️ FUNCȚII AJUTĂTOARE SELENIUM (Rămân neschimbate)
 # ------------------------------------------------------------------------------
-# (Functiile find_element, ffi, ffi2, get_opening_odd_from_click raman neschimbate)
-# ...
-
+# ... (find_element, ffi, ffi2, get_opening_odd_from_click - raman la fel) ...
 def find_element(driver, by_method, locator):
     """Găsește un element sau returnează None/False."""
     try:
@@ -80,14 +78,13 @@ def get_opening_odd_from_click(driver, element_to_click_xpath):
         ffi2(driver, '//body')
         return f'Eroare Click: {e}'
 
-
 # ------------------------------------------------------------------------------
 # 🚀 FUNCȚIA PRINCIPALĂ DE SCRAPING
 # ------------------------------------------------------------------------------
 
 def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
     
-    global TARGET_BOOKMAKER_HREF_PARTIAL 
+    global TARGET_BOOKMAKER_NAME
     
     results = defaultdict(dict)
     results['Match'] = 'Scraping activat'
@@ -119,14 +116,15 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         
         # Punctele de referință
         LINE_ROWS_XPATH = '//div[contains(@data-testid, "collapsed-row")]' 
-        LINE_CLICK_REL_PATH = './/p[contains(@class, "max-sm:!hidden")]' 
+        LINE_CLICK_REL_PATH = './/p[contains(@class, "max-sm:!hidden")]' # Elementul pe care dăm clic
 
-        # Căi interne (din V29.0)
-        # SIBLING-UL ESTE ELEMENTUL CARE SE DEZVOLTĂ (ACESTA ESTE RÂNDUL DETALIAT)
-        SIBLING_DETAILS_REL_PATH = './following-sibling::div[1]'
+        # Căi interne (UPDATE 35.0)
+        # 1. Găsim rândul expandat (sibling al elementului row, care conține data-testid="over-under-expanded-row")
+        EXPANDED_ROW_XPATH = './following-sibling::div[1]//div[@data-testid="over-under-expanded-row"]'
         
-        HOME_ODD_REL_PATH = f'{SIBLING_DETAILS_REL_PATH}//a[contains(@href, "{TARGET_BOOKMAKER_HREF_PARTIAL}")]/following-sibling::div[1]/p' 
-        AWAY_ODD_REL_PATH = f'{SIBLING_DETAILS_REL_PATH}//a[contains(@href, "{TARGET_BOOKMAKER_HREF_PARTIAL}")]/following-sibling::div[2]/p' 
+        # 2. Căutăm cotele Betano în interiorul rândului expandat
+        HOME_ODD_REL_PATH = f'.//p[text()="{TARGET_BOOKMAKER_NAME}"]/following::div[@data-testid="odd-container"][1]//p[@class="odds-text"]' 
+        AWAY_ODD_REL_PATH = f'.//p[text()="{TARGET_BOOKMAKER_NAME}"]/following::div[@data-testid="odd-container"][2]//p[@class="odds-text"]' 
         LINE_REL_PATH = LINE_CLICK_REL_PATH 
 
         # ----------------------------------------------------
@@ -152,47 +150,42 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         time.sleep(2) 
         
         all_line_rows = driver.find_elements(By.XPATH, LINE_ROWS_XPATH)
-        html_ou_dumped = False 
         
         for line_row_element in all_line_rows:
             
             try:
                 element_to_click = line_row_element.find_element(By.XPATH, LINE_CLICK_REL_PATH)
                 
-                # 1. Dăm clic pe elementul interior (element_to_click)
+                # 1. Dăm clic pe elementul interior (clicul funcționează acum)
                 driver.execute_script("arguments[0].click();", element_to_click)
                 time.sleep(1.5) 
-                
-                # **!!! DEBUG: MICRO-HTML DUMP DIN SIBLING !!!**
-                if not html_ou_dumped:
-                    # Găsim rândul detaliat deschis (sibling-ul)
-                    sibling_details = line_row_element.find_element(By.XPATH, SIBLING_DETAILS_REL_PATH)
-                    # Extragem HTML-ul interior al rândului detaliat
-                    results['Debug_HTML_OU'] = sibling_details.get_attribute('innerHTML')
-                    html_ou_dumped = True
                 
             except Exception as e:
                 continue 
 
             try:
+                # Găsim rândul expandat care conține bookmakerii
+                expanded_row = line_row_element.find_element(By.XPATH, EXPANDED_ROW_XPATH)
+                
                 # 2. Încercăm să extragem datele din rândul de detaliu deschis
                 line_raw_text = element_to_click.text.strip()
                 line = line_raw_text if line_raw_text else 'N/A'
                 
-                # Căutarea cotei Home/Over
-                home_odd_element = line_row_element.find_element(By.XPATH, HOME_ODD_REL_PATH)
+                # Căutarea cotei Home/Over (in interiorul expanded_row)
+                home_odd_element = expanded_row.find_element(By.XPATH, HOME_ODD_REL_PATH)
                 close_home = home_odd_element.text.strip()
                 
-                # Căutarea cotei Away/Under
-                away_odd_element = line_row_element.find_element(By.XPATH, AWAY_ODD_REL_PATH)
+                # Căutarea cotei Away/Under (in interiorul expanded_row)
+                away_odd_element = expanded_row.find_element(By.XPATH, AWAY_ODD_REL_PATH)
                 close_away = away_odd_element.text.strip()
                 
                 if close_home and close_away and close_home != 'N/A' and close_away != 'N/A':
                     
-                    # Extragere XPath absolut pentru cota Home/Away (Restul logicii rămâne)
+                    # Extragere XPath absolut pentru cota Home/Away (pentru a simula clicul)
                     home_odd_xpath_full = driver.execute_script("""...""", home_odd_element)
                     away_odd_xpath_full = driver.execute_script("""...""", away_odd_element)
                     
+                    # Extragerea cotelor de deschidere (folosind funcția complexă)
                     open_home = get_opening_odd_from_click(driver, home_odd_xpath_full)
                     time.sleep(0.5)
                     open_away = get_opening_odd_from_click(driver, away_odd_xpath_full)
@@ -203,16 +196,14 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
                         'Home_Over_Open': open_home,
                         'Away_Under_Close': close_away,
                         'Away_Under_Open': open_away,
-                        'Bookmaker': "Betano (Found by Click)"
+                        'Bookmaker': TARGET_BOOKMAKER_NAME
                     }
                     if data['Line'] != 'N/A':
                         ou_lines.append(data)
-                        break 
+                        break # Extragem doar prima linie Over/Under
                         
             except NoSuchElementException as e:
-                if html_ou_dumped and 'Betano_OU_Extraction_Error' not in results:
-                    results['Betano_OU_Extraction_Error'] = f"NoSuchElement: {e}"
-                pass 
+                pass # Nu am găsit elementul Betano în rândul expandat
             
             # 3. Curățare: Dăm clic din nou pe elementul interior pentru a-l închide.
             try:
@@ -224,9 +215,10 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         results['Over_Under_Lines'] = ou_lines
 
         # ----------------------------------------------------
-        # ETAPA 2: Extrage cotele Handicap 
+        # ETAPA 2: Extrage cotele Handicap (Logica identică)
         # ----------------------------------------------------
-        # ... (Logica pentru AH este identică, cu Micro-HTML Dump)
+        
+        # ... (Logica pentru AH este identică, cu aceleași XPath-uri relative) ...
         
         driver.get(ah_link)
         
@@ -248,37 +240,33 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         time.sleep(2) 
 
         all_line_rows = driver.find_elements(By.XPATH, LINE_ROWS_XPATH)
-        html_ah_dumped = False 
 
         for line_row_element in all_line_rows:
             
             try:
                 element_to_click = line_row_element.find_element(By.XPATH, LINE_CLICK_REL_PATH)
                 
-                # 1. Dăm clic pe elementul interior (element_to_click)
+                # 1. Dăm clic pe elementul interior (clicul funcționează)
                 driver.execute_script("arguments[0].click();", element_to_click)
                 time.sleep(1.5) 
                 
-                # **!!! DEBUG: MICRO-HTML DUMP DIN SIBLING !!!**
-                if not html_ah_dumped:
-                    sibling_details = line_row_element.find_element(By.XPATH, SIBLING_DETAILS_REL_PATH)
-                    results['Debug_HTML_AH'] = sibling_details.get_attribute('innerHTML')
-                    html_ah_dumped = True
-
             except Exception as e:
                 continue 
 
             try:
+                # Găsim rândul expandat care conține bookmakerii
+                expanded_row = line_row_element.find_element(By.XPATH, EXPANDED_ROW_XPATH)
+                
                 # 2. Încercăm să extragem datele din rândul de detaliu deschis
                 line_raw_text = element_to_click.text.strip()
                 line = line_raw_text if line_raw_text else 'N/A'
                 
-                # Căutarea cotei Home/Over
-                home_odd_element = line_row_element.find_element(By.XPATH, HOME_ODD_REL_PATH)
+                # Căutarea cotei Home/Over (in interiorul expanded_row)
+                home_odd_element = expanded_row.find_element(By.XPATH, HOME_ODD_REL_PATH)
                 close_home = home_odd_element.text.strip()
                 
-                # Căutarea cotei Away/Under
-                away_odd_element = line_row_element.find_element(By.XPATH, AWAY_ODD_REL_PATH)
+                # Căutarea cotei Away/Under (in interiorul expanded_row)
+                away_odd_element = expanded_row.find_element(By.XPATH, AWAY_ODD_REL_PATH)
                 close_away = away_odd_element.text.strip()
                 
                 if close_home and close_away and close_home != 'N/A' and close_away != 'N/A':
@@ -296,13 +284,13 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
                         'Home_Over_Open': open_home,
                         'Away_Under_Close': close_away,
                         'Away_Under_Open': open_away,
-                        'Bookmaker': "Betano (Found by Click)"
+                        'Bookmaker': TARGET_BOOKMAKER_NAME
                     }
                     if data['Line'] != 'N/A':
                         handicap_lines.append(data)
                         break
 
-            except NoSuchElementException:
+            except NoSuchElementException as e:
                 pass 
             
             # 3. Curățare: Dăm clic din nou pe elementul interior pentru a-l închide.
