@@ -1,4 +1,4 @@
-# scraper_logic.py (VERSIUNEA 26.0 - DEBUG: Captură de ecran după forțarea CSS)
+# scraper_logic.py (VERSIUNEA 28.0 - Clic pe Linia care Colapsează)
 
 import os
 import time
@@ -78,13 +78,6 @@ def get_opening_odd_from_click(driver, element_to_click_xpath):
         ffi2(driver, '//body')
         return f'Eroare Click: {e}'
 
-def save_screenshot(driver, filename="debug_screenshot.png"):
-    """Salvează o captură de ecran pentru debugging."""
-    try:
-        driver.save_screenshot(filename)
-        return f"Captura de ecran salvată ca: {filename}"
-    except Exception as e:
-        return f"Eroare la salvarea capturii de ecran: {e}"
 
 # ------------------------------------------------------------------------------
 # 🚀 FUNCȚIA PRINCIPALĂ DE SCRAPING
@@ -125,12 +118,14 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         LINE_ROWS_XPATH = '//div[contains(@data-testid, "collapsed-row")]' 
 
         # Căi interne 
-        OU_HOME_ODD_REL_PATH = '/div[3]/div/div/p' 
-        OU_AWAY_ODD_REL_PATH = '/div[4]/div/div/p' 
         
-        # NOUL XPATH pentru rândul Betano: Caută un rând detaliu care conține link Betano
-        BETANO_ROW_REL_XPATH = f'./following-sibling::div[1]//*[contains(@class, "table-main__row--details-line")]//a[contains(@href, "{TARGET_BOOKMAKER_HREF_PARTIAL}")]/ancestor::div[contains(@class, "table-main__row--details-line")]'
+        # Căi către cota de închidere, pornind de la rândul colapsat
+        # Cota HOME (Over): Sibling-ul care se deschide (div[1]) -> Căutăm link-ul Betano -> Navigăm la cota Home/Over 
+        HOME_ODD_REL_PATH = f'./following-sibling::div[1]//a[contains(@href, "{TARGET_BOOKMAKER_HREF_PARTIAL}")]/following-sibling::div[1]/p' 
         
+        # Cota AWAY (Under): Cota Home/Over este urmată de Cota Away/Under 
+        AWAY_ODD_REL_PATH = f'./following-sibling::div[1]//a[contains(@href, "{TARGET_BOOKMAKER_HREF_PARTIAL}")]/following-sibling::div[2]/p' 
+
         LINE_REL_PATH = './/p[contains(@class, "max-sm:!hidden")]'
 
         # ----------------------------------------------------
@@ -157,104 +152,114 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         time.sleep(3) 
         
         all_line_rows = driver.find_elements(By.XPATH, LINE_ROWS_XPATH)
-        screenshot_ou_done = False # Variabilă de control screenshot OU
         
         # Iterăm prin rândurile găsite și extragem cotele
         for line_row_element in all_line_rows:
             
-            # MANIPULARE CSS PENTRU A FORȚA AFIRAREA BOOKMAKERILOR DIN SIBLING
-            driver.execute_script("""
-                var lineElement = arguments[0];
-                var nextSibling = lineElement.nextElementSibling;
-                if (nextSibling) {
-                    nextSibling.style.display = 'block'; 
-                    nextSibling.style.visibility = 'visible';
-                    
-                    var hiddenChildren = nextSibling.querySelectorAll('[style*="display:none"], [class*="hidden"]');
-                    hiddenChildren.forEach(function(child) {
-                        child.style.display = 'block';
-                        child.style.visibility = 'visible';
-                    });
-                }
-            """, line_row_element)
-
-            time.sleep(1.5) 
-            
-            # **SALVARE CAPTURĂ DE ECRAN PENTRU DEBUG**
-            if not screenshot_ou_done:
-                screenshot_path = save_screenshot(driver, "debug_ou_open_line.png")
-                results['Debug_Screenshot_OU'] = screenshot_path
-                screenshot_ou_done = True
+            # **!!! NOU: SIMULARE CLIC PE RÂNDUL LINIEI PENTRU DESCHIDERE !!!**
             
             try:
-                # Căutarea rândului Betano
-                betano_row_element = line_row_element.find_element(By.XPATH, BETANO_ROW_REL_XPATH)
-                
+                # 1. Dăm clic pe elementul care colapsează (line_row_element)
+                driver.execute_script("arguments[0].click();", line_row_element)
+                time.sleep(1.5) # Așteptăm ca detaliile (bookmakerii) să se încarce
+            except Exception as e:
+                # Dacă nu putem da clic, trecem la următorul rând
+                # print(f"DEBUG: Eroare la clic pe linia de cotă: {e}")
+                continue 
+
+            # 2. Încercăm să extragem datele din rândul de detaliu deschis
+            try:
+                # Extragerea Liniei de cota
                 line_raw_text = ffi(line_row_element, By.XPATH, LINE_REL_PATH)
                 line = line_raw_text.strip() if line_raw_text else 'N/A'
                 
-                bm_name_element = betano_row_element.find_element(By.XPATH, f'.//p[contains(text(), "Betano")]')
-                bm_name = bm_name_element.text.strip() if bm_name_element else "Betano.ro"
-
-                # Extragere XPath absolut pentru cotele de închidere
-                betano_row_xpath_full = driver.execute_script("""
-                    var element = arguments[0]; 
-                    var xpath = ''; 
-                    while (element && element.parentNode && element.tagName !== 'BODY') { 
-                        var tag = element.tagName;
-                        var parent = element.parentNode; 
-                        var siblings = parent.children; 
-                        var count = 0; 
-                        var index = 0; 
-                        for (var i = 0; i < siblings.length; i++) { 
-                            var sibling = siblings[i]; 
-                            if (sibling.tagName === tag) { 
-                                count++; 
-                                if (sibling === element) { index = count; } 
-                            } 
-                        } 
-                        var tagName = tag.toLowerCase(); 
-                        var xpathIndex = index > 1 ? '[' + index + ']' : ''; 
-                        xpath = '/' + tagName + xpathIndex + xpath; 
-                        element = parent; 
-                    } 
-                    return '//body' + xpath;
-                """, betano_row_element)
-
-
-                home_odd_xpath = betano_row_xpath_full + OU_HOME_ODD_REL_PATH
-                away_odd_xpath = betano_row_xpath_full + OU_AWAY_ODD_REL_PATH
+                # Căutarea cotei Home/Over
+                home_odd_element = line_row_element.find_element(By.XPATH, HOME_ODD_REL_PATH)
+                close_home = home_odd_element.text.strip()
                 
-                close_home = ffi(driver, By.XPATH, home_odd_xpath) 
-                close_away = ffi(driver, By.XPATH, away_odd_xpath) 
+                # Căutarea cotei Away/Under
+                away_odd_element = line_row_element.find_element(By.XPATH, AWAY_ODD_REL_PATH)
+                close_away = away_odd_element.text.strip()
                 
                 if close_home and close_away and close_home != 'N/A' and close_away != 'N/A':
                     
-                    # LOGICĂ SIMPLIFICATĂ: OCOLIREA EXTRAGERII COTELOR DESCHISE
+                    # Extragere XPath absolut pentru cota Home 
+                    home_odd_xpath_full = driver.execute_script("""
+                        var element = arguments[0]; 
+                        var xpath = ''; 
+                        while (element && element.parentNode && element.tagName !== 'BODY') { 
+                            var tag = element.tagName;
+                            var parent = element.parentNode; 
+                            var siblings = parent.children; 
+                            var count = 0; 
+                            var index = 0; 
+                            for (var i = 0; i < siblings.length; i++) { 
+                                var sibling = siblings[i]; 
+                                if (sibling.tagName === tag) { 
+                                    count++; 
+                                    if (sibling === element) { index = count; } 
+                                } 
+                            } 
+                            var tagName = tag.toLowerCase(); 
+                            var xpathIndex = index > 1 ? '[' + index + ']' : ''; 
+                            xpath = '/' + tagName + xpathIndex + xpath; 
+                            element = parent; 
+                        } 
+                        return '//body' + xpath;
+                    """, home_odd_element)
+                    
+                    # Extragere XPath absolut pentru cota Away
+                    away_odd_xpath_full = driver.execute_script("""
+                        var element = arguments[0]; 
+                        var xpath = ''; 
+                        while (element && element.parentNode && element.tagName !== 'BODY') { 
+                            var tag = element.tagName;
+                            var parent = element.parentNode; 
+                            var siblings = parent.children; 
+                            var count = 0; 
+                            var index = 0; 
+                            for (var i = 0; i < siblings.length; i++) { 
+                                var sibling = siblings[i]; 
+                                if (sibling.tagName === tag) { 
+                                    count++; 
+                                    if (sibling === element) { index = count; } 
+                                } 
+                            } 
+                            var tagName = tag.toLowerCase(); 
+                            var xpathIndex = index > 1 ? '[' + index + ']' : ''; 
+                            xpath = '/' + tagName + xpathIndex + xpath; 
+                            element = parent; 
+                        } 
+                        return '//body' + xpath;
+                    """, away_odd_element)
+                    
+                    # Extragerea cotelor de deschidere (folosind funcția complexă)
+                    open_home = get_opening_odd_from_click(driver, home_odd_xpath_full)
+                    time.sleep(0.5)
+                    open_away = get_opening_odd_from_click(driver, away_odd_xpath_full)
+                    
                     data = {
                         'Line': line,
                         'Home_Over_Close': close_home,
-                        'Home_Over_Open': 'TEST: CLOSE ONLY',
+                        'Home_Over_Open': open_home,
                         'Away_Under_Close': close_away,
-                        'Away_Under_Open': 'TEST: CLOSE ONLY',
-                        'Bookmaker': bm_name
+                        'Away_Under_Open': open_away,
+                        'Bookmaker': "Betano (Found by Click)"
                     }
                     if data['Line'] != 'N/A':
                         ou_lines.append(data)
                         break 
                         
             except NoSuchElementException:
+                # Dacă nu găsim cotele (Betano nu a fost afișat)
                 pass 
             
-            # Curățare
-            driver.execute_script("""
-                var lineElement = arguments[0];
-                var nextSibling = lineElement.nextElementSibling;
-                if (nextSibling) {
-                    nextSibling.style.display = 'none'; 
-                }
-            """, line_row_element)
-            time.sleep(0.5) 
+            # 3. Curățare: Dăm clic din nou pe rând pentru a-l închide.
+            try:
+                driver.execute_script("arguments[0].click();", line_row_element)
+                time.sleep(0.5) 
+            except:
+                pass 
         
         results['Over_Under_Lines'] = ou_lines
 
@@ -283,85 +288,97 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         time.sleep(3) 
 
         all_line_rows = driver.find_elements(By.XPATH, LINE_ROWS_XPATH)
-        screenshot_ah_done = False # Variabilă de control screenshot AH
 
         # Extrage liniile AH 
         for line_row_element in all_line_rows:
             
-            # MANIPULARE CSS PENTRU A FORȚA AFIRAREA BOOKMAKERILOR DIN SIBLING
-            driver.execute_script("""
-                var lineElement = arguments[0];
-                var nextSibling = lineElement.nextElementSibling;
-                if (nextSibling) {
-                    nextSibling.style.display = 'block'; 
-                    nextSibling.style.visibility = 'visible';
-                    
-                    var hiddenChildren = nextSibling.querySelectorAll('[style*="display:none"], [class*="hidden"]');
-                    hiddenChildren.forEach(function(child) {
-                        child.style.display = 'block';
-                        child.style.visibility = 'visible';
-                    });
-                }
-            """, line_row_element)
-            time.sleep(1.5) 
-
-            # **SALVARE CAPTURĂ DE ECRAN PENTRU DEBUG**
-            if not screenshot_ah_done:
-                screenshot_path = save_screenshot(driver, "debug_ah_open_line.png")
-                results['Debug_Screenshot_AH'] = screenshot_path
-                screenshot_ah_done = True
-
+            # **!!! NOU: SIMULARE CLIC PE RÂNDUL LINIEI PENTRU DESCHIDERE !!!**
             try:
-                # Căutarea rândului Betano
-                betano_row_element = line_row_element.find_element(By.XPATH, BETANO_ROW_REL_XPATH)
-                
+                # 1. Dăm clic pe elementul care colapsează (line_row_element)
+                driver.execute_script("arguments[0].click();", line_row_element)
+                time.sleep(1.5) # Așteptăm ca detaliile (bookmakerii) să se încarce
+            except Exception as e:
+                # print(f"DEBUG: Eroare la clic pe linia de cotă AH: {e}")
+                continue 
+
+            # 2. Încercăm să extragem datele din rândul de detaliu deschis
+            try:
+                # Extragerea Liniei de cota
                 line_raw_text = ffi(line_row_element, By.XPATH, LINE_REL_PATH)
                 line = line_raw_text.strip() if line_raw_text else 'N/A'
                 
-                bm_name_element = betano_row_element.find_element(By.XPATH, f'.//p[contains(text(), "Betano")]')
-                bm_name = bm_name_element.text.strip() if bm_name_element else "Betano.ro"
-
-                betano_row_xpath_full = driver.execute_script("""
-                    var element = arguments[0]; 
-                    var xpath = ''; 
-                    while (element && element.parentNode && element.tagName !== 'BODY') { 
-                        var tag = element.tagName;
-                        var parent = element.parentNode; 
-                        var siblings = parent.children; 
-                        var count = 0; 
-                        var index = 0; 
-                        for (var i = 0; i < siblings.length; i++) { 
-                            var sibling = siblings[i]; 
-                            if (sibling.tagName === tag) { 
-                                count++; 
-                                if (sibling === element) { index = count; } 
-                            } 
-                        } 
-                        var tagName = tag.toLowerCase(); 
-                        var xpathIndex = index > 1 ? '[' + index + ']' : ''; 
-                        xpath = '/' + tagName + xpathIndex + xpath; 
-                        element = parent; 
-                    } 
-                    return '//body' + xpath;
-                """, betano_row_element)
-
-
-                home_odd_xpath = betano_row_xpath_full + OU_HOME_ODD_REL_PATH
-                away_odd_xpath = betano_row_xpath_full + OU_AWAY_ODD_REL_PATH
+                # Căutarea cotei Home/Over
+                home_odd_element = line_row_element.find_element(By.XPATH, HOME_ODD_REL_PATH)
+                close_home = home_odd_element.text.strip()
                 
-                close_home = ffi(driver, By.XPATH, home_odd_xpath)
-                close_away = ffi(driver, By.XPATH, away_odd_xpath)
+                # Căutarea cotei Away/Under
+                away_odd_element = line_row_element.find_element(By.XPATH, AWAY_ODD_REL_PATH)
+                close_away = away_odd_element.text.strip()
                 
                 if close_home and close_away and close_home != 'N/A' and close_away != 'N/A':
                     
-                    # LOGICĂ SIMPLIFICATĂ: OCOLIREA EXTRAGERII COTELOR DESCHISE
+                    # Extragere XPath absolut pentru cota Home 
+                    home_odd_xpath_full = driver.execute_script("""
+                        var element = arguments[0]; 
+                        var xpath = ''; 
+                        while (element && element.parentNode && element.tagName !== 'BODY') { 
+                            var tag = element.tagName;
+                            var parent = element.parentNode; 
+                            var siblings = parent.children; 
+                            var count = 0; 
+                            var index = 0; 
+                            for (var i = 0; i < siblings.length; i++) { 
+                                var sibling = siblings[i]; 
+                                if (sibling.tagName === tag) { 
+                                    count++; 
+                                    if (sibling === element) { index = count; } 
+                                } 
+                            } 
+                            var tagName = tag.toLowerCase(); 
+                            var xpathIndex = index > 1 ? '[' + index + ']' : ''; 
+                            xpath = '/' + tagName + xpathIndex + xpath; 
+                            element = parent; 
+                        } 
+                        return '//body' + xpath;
+                    """, home_odd_element)
+                    
+                    # Extragere XPath absolut pentru cota Away
+                    away_odd_xpath_full = driver.execute_script("""
+                        var element = arguments[0]; 
+                        var xpath = ''; 
+                        while (element && element.parentNode && element.tagName !== 'BODY') { 
+                            var tag = element.tagName;
+                            var parent = element.parentNode; 
+                            var siblings = parent.children; 
+                            var count = 0; 
+                            var index = 0; 
+                            for (var i = 0; i < siblings.length; i++) { 
+                                var sibling = siblings[i]; 
+                                if (sibling.tagName === tag) { 
+                                    count++; 
+                                    if (sibling === element) { index = count; } 
+                                } 
+                            } 
+                            var tagName = tag.toLowerCase(); 
+                            var xpathIndex = index > 1 ? '[' + index + ']' : ''; 
+                            xpath = '/' + tagName + xpathIndex + xpath; 
+                            element = parent; 
+                        } 
+                        return '//body' + xpath;
+                    """, away_odd_element)
+                    
+                    # Extragerea cotelor de deschidere (folosind funcția complexă)
+                    open_home = get_opening_odd_from_click(driver, home_odd_xpath_full)
+                    time.sleep(0.5)
+                    open_away = get_opening_odd_from_click(driver, away_odd_xpath_full)
+
                     data = {
                         'Line': line,
                         'Home_Over_Close': close_home,
-                        'Home_Over_Open': 'TEST: CLOSE ONLY',
+                        'Home_Over_Open': open_home,
                         'Away_Under_Close': close_away,
-                        'Away_Under_Open': 'TEST: CLOSE ONLY',
-                        'Bookmaker': bm_name
+                        'Away_Under_Open': open_away,
+                        'Bookmaker': "Betano (Found by Click)"
                     }
                     if data['Line'] != 'N/A':
                         handicap_lines.append(data)
@@ -370,15 +387,12 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
             except NoSuchElementException:
                 pass 
             
-            # Curățare
-            driver.execute_script("""
-                var lineElement = arguments[0];
-                var nextSibling = lineElement.nextElementSibling;
-                if (nextSibling) {
-                    nextSibling.style.display = 'none'; 
-                }
-            """, line_row_element)
-            time.sleep(0.5) 
+            # 3. Curățare: Dăm clic din nou pe rând pentru a-l închide.
+            try:
+                driver.execute_script("arguments[0].click();", line_row_element)
+                time.sleep(0.5) 
+            except:
+                pass 
 
         results['Handicap_Lines'] = handicap_lines
             
