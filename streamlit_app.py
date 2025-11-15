@@ -44,13 +44,12 @@ st.header("URL-uri Meci (Over/Under & Asian Handicap)")
 # Input-uri pentru cele două URL-uri
 ou_link = st.text_input(
     "URL Over/Under (Total) Meci:",
-    placeholder="Ex: https://www.oddsportal.com/basketball/usa/nba/meci-a-meci-b-KtP8YyZj/#over-under;1"
-)
+    placeholder="Ex: https://www.oddsportal.com/basketball/usa/nba/meci-a-meci-b-KtP8YyZj/#over-under;1")
 
 # 1. Input-ul utilizatorului
 match_link = st.text_input(
     "🔗 Introduceți Link-ul OddsPortal:",
-    "https://www.oddsportal.com/basketball/usa/nba/phoenix-suns-indiana-pacers-KtP8YyZj/#home-away;1"
+    "https://www.oddsportal.com/basketball/usa/nba/phoenix-suns-indiana-pacers-KtP8YyZj/#home-away;1")
 ah_link = st.text_input(
     "URL Asian Handicap Meci:",
     placeholder="Ex: https://www.oddsportal.com/basketball/usa/nba/meci-a-meci-b-KtP8YyZj/#ah;1"
