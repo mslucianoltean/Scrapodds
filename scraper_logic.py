@@ -1,3 +1,5 @@
+# scraper_logic.py (VERSIUNEA 44.0 - CORECȚIE PANDAS)
+
 import os
 import time
 import re 
@@ -17,7 +19,6 @@ from typing import Optional, Dict, Any, List
 # ------------------------------------------------------------------------------
 TARGET_BOOKMAKER_HREF_PARTIAL = "betano" 
 
-# Template-uri pentru URL-uri specifice liniei (am păstrat formatul .2f)
 BASE_URL_TEMPLATE = "https://www.oddsportal.com/basketball/usa/nba/{match_slug}/#over-under;1;{line_value:.2f};0"
 BASE_URL_AH_TEMPLATE = "https://www.oddsportal.com/basketball/usa/nba/{match_slug}/#ah;1;{line_value:.2f};0"
 # ------------------------------------------------------------------------------
@@ -29,24 +30,19 @@ BASE_URL_AH_TEMPLATE = "https://www.oddsportal.com/basketball/usa/nba/{match_slu
 def wait_for_collapsed_rows(driver: webdriver.Chrome, ou_or_ah_link: str, ou_or_ah_testid: str) -> bool:
     """Navighează și așteaptă până când rândurile colapsate sunt vizibile."""
     
-    # Navigăm la URL-ul specific (completat de Streamlit)
     driver.get(ou_or_ah_link)
-    
-    # XPath pentru a aștepta încărcarea primului rând colapsat
     wait_xpath = f'//div[@data-testid="{ou_or_ah_testid}"]'
     
     try:
-        # Așteptăm până la 20 de secunde ca rândul să apară
         wait = WebDriverWait(driver, 20) 
         wait.until(EC.presence_of_element_located((By.XPATH, wait_xpath)))
-        time.sleep(3) # Pauză de siguranță după ce elementul apare
+        time.sleep(3) 
         return True
     except TimeoutException:
         return False
 
 def extract_line_value(line_text: str) -> Optional[float]:
     """Extrage valoarea numerică a liniei (ex: 'Over/Under +216.5' -> 216.5)."""
-    # Folosim un regex robust pentru a găsi orice număr zecimal
     match = re.search(r'(\d+\.?\d*)', line_text)
     if match:
         return float(match.group(1)) 
@@ -54,11 +50,10 @@ def extract_line_value(line_text: str) -> Optional[float]:
 
 def get_match_slug(url: str) -> Optional[str]:
     """Extrage slug-ul meciului (ex: phoenix-suns-indiana-pacers-KtP8YyZj) din URL-ul de bază."""
-    # Pattern care caută slug-ul dintre ultima secțiune de director și #
     match = re.search(r'/[^/]+/[^/]+/([^/]+)/#', url)
     if match:
         return match.group(1)
-    # Dacă URL-ul e incomplet (ca cel furnizat de tine), încercăm să extragem slug-ul înainte de ultimul /
+    # Fallback pentru URL incomplet (ca cel furnizat de tine)
     match_fallback = re.search(r'/[^/]+/[^/]+/([^/]+)/$', url)
     if match_fallback:
         return match_fallback.group(1)
@@ -119,6 +114,10 @@ def scrape_basketball_match_full_data_filtered(ou_link: str, ah_link: str) -> Di
     results['Match'] = 'Scraping activat'
     driver: Optional[webdriver.Chrome] = None 
     
+    # Inițializăm listele pentru DataFrame-uri în caz de eșec
+    ou_lines: List[Dict[str, Any]] = []
+    handicap_lines: List[Dict[str, Any]] = []
+
     # --- Inițializare driver ---
     chrome_options = Options()
     chrome_options.add_argument("--headless")
@@ -136,6 +135,9 @@ def scrape_basketball_match_full_data_filtered(ou_link: str, ah_link: str) -> Di
         
     except Exception as e:
         results['Error'] = f"Eroare la inițializarea driverului Headless. Detalii: {e}"
+        # Returnăm listele goale pentru a evita erorile DataFrame constructor
+        results['Over_Under_Lines'] = ou_lines
+        results['Handicap_Lines'] = handicap_lines
         return dict(results)
 
     # Incepe scraping-ul
@@ -145,8 +147,6 @@ def scrape_basketball_match_full_data_filtered(ou_link: str, ah_link: str) -> Di
         # Punctele de referință
         COLLAPSED_ROW_XPATH_OU = '//div[@data-testid="over-under-collapsed-row"]'
         COLLAPSED_ROW_XPATH_AH = '//div[@data-testid="asian-handicap-collapsed-row"]'
-        
-        # NOU: XPath simplificat pentru textul liniei (bazat pe structura HTML pe care ai dat-o)
         LINE_TEXT_REL_XPATH_SIMPLIFIED = './/div[@data-testid="over-under-collapsed-option-box"]/p[1]' 
         
         EXPANDED_ROW_STATIC_XPATH_OU = '//div[@data-testid="over-under-expanded-row"]'
@@ -160,19 +160,20 @@ def scrape_basketball_match_full_data_filtered(ou_link: str, ah_link: str) -> Di
         if not match_slug:
             results['Error'] = "Eroare la extragerea slug-ului meciului din URL. Verifică formatul URL-ului."
             driver.quit()
+            results['Over_Under_Lines'] = ou_lines
+            results['Handicap_Lines'] = handicap_lines
             return dict(results)
 
         # ----------------------------------------------------
         # ETAPA 1: Extrage liniile Over/Under (generare URL-uri)
         # ----------------------------------------------------
         if wait_for_collapsed_rows(driver, ou_link, "over-under-collapsed-row"):
-            # 1. Extrage toate valorile de linie disponibile
+            
             line_rows: List[WebElement] = driver.find_elements(By.XPATH, COLLAPSED_ROW_XPATH_OU)
             line_values: set[float] = set()
             
             for row in line_rows:
                 try:
-                    # Folosim XPath-ul simplificat
                     line_text_element = row.find_element(By.XPATH, LINE_TEXT_REL_XPATH_SIMPLIFIED)
                     value = extract_line_value(line_text_element.text.strip())
                     if value is not None:
@@ -181,20 +182,16 @@ def scrape_basketball_match_full_data_filtered(ou_link: str, ah_link: str) -> Di
                     continue 
             
             if not line_values:
-                results['Over_Under_Lines'] = "Nu au fost găsite valori de linii O/U."
-            
-            ou_lines: List[Dict[str, Any]] = []
+                results['Over_Under_Lines'] = "Nu au fost găsite valori de linii O/U." # Message de debug
             
             # 2. Parcurge fiecare linie (URL) nou generată și extrage cotele
             for line_value in sorted(list(line_values)):
-                # Folosim formatul .2f pentru a asigura că numerele au două zecimale în URL
                 new_url = BASE_URL_TEMPLATE.format(match_slug=match_slug, line_value=line_value)
                 
                 driver.get(new_url)
                 time.sleep(3) 
 
                 try:
-                    # 3. Extragerea directă a cotelor din rândul deja expandat
                     expanded_row = driver.find_element(By.XPATH, EXPANDED_ROW_STATIC_XPATH_OU)
                     
                     home_odd_element = expanded_row.find_element(By.XPATH, HOME_ODD_REL_PATH)
@@ -223,8 +220,6 @@ def scrape_basketball_match_full_data_filtered(ou_link: str, ah_link: str) -> Di
                     continue
                 except Exception:
                     continue
-            
-            results['Over_Under_Lines'] = ou_lines
         else:
             results['Over_Under_Lines'] = "Eroare: Nu s-au putut încărca rândurile O/U în timpul alocat."
 
@@ -235,13 +230,12 @@ def scrape_basketball_match_full_data_filtered(ou_link: str, ah_link: str) -> Di
         
         if wait_for_collapsed_rows(driver, ah_link, "asian-handicap-collapsed-row"):
             
-            # 1. Extrage toate valorile de linie disponibile pentru Handicap
             line_rows_ah: List[WebElement] = driver.find_elements(By.XPATH, COLLAPSED_ROW_XPATH_AH)
             line_values_ah: set[float] = set()
             
             for row in line_rows_ah:
                 try:
-                    # Folosim XPath-ul simplificat
+                    # Notă: Aici ar trebui să fie un XPath diferit pentru AH, dar îl folosim pe cel O/U temporar
                     line_text_element = row.find_element(By.XPATH, LINE_TEXT_REL_XPATH_SIMPLIFIED)
                     value = extract_line_value(line_text_element.text.strip())
                     if value is not None:
@@ -252,8 +246,6 @@ def scrape_basketball_match_full_data_filtered(ou_link: str, ah_link: str) -> Di
             if not line_values_ah:
                  results['Handicap_Lines'] = "Nu au fost găsite valori de linii AH."
 
-            handicap_lines: List[Dict[str, Any]] = []
-
             # 2. Parcurge fiecare linie (URL) nou generată
             for line_value in sorted(list(line_values_ah)):
                 new_url = BASE_URL_AH_TEMPLATE.format(match_slug=match_slug, line_value=line_value)
@@ -262,7 +254,6 @@ def scrape_basketball_match_full_data_filtered(ou_link: str, ah_link: str) -> Di
                 time.sleep(3) 
                 
                 try:
-                    # 3. Extragerea directă a cotelor din rândul deja expandat
                     expanded_row = driver.find_element(By.XPATH, EXPANDED_ROW_STATIC_XPATH_AH)
                     
                     home_odd_element = expanded_row.find_element(By.XPATH, HOME_ODD_REL_PATH)
@@ -292,7 +283,6 @@ def scrape_basketball_match_full_data_filtered(ou_link: str, ah_link: str) -> Di
                 except Exception:
                     continue
 
-            results['Handicap_Lines'] = handicap_lines
         else:
             results['Handicap_Lines'] = "Eroare: Nu s-au putut încărca rândurile AH în timpul alocat."
             
@@ -302,5 +292,9 @@ def scrape_basketball_match_full_data_filtered(ou_link: str, ah_link: str) -> Di
     finally:
         if driver:
             driver.quit() 
+            
+    # Asigurăm că returnăm listele de date, chiar dacă sunt goale sau conțin date parțiale
+    results['Over_Under_Lines'] = ou_lines
+    results['Handicap_Lines'] = handicap_lines
             
     return dict(results)
