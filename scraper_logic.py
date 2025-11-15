@@ -1,4 +1,4 @@
-# scraper_logic.py (VERSIUNEA 31.0 - Clic pe Linia care Colapsează + Debug Vizual)
+# scraper_logic.py (VERSIUNEA 32.0 - Clic pe Linia care Colapsează + Dump HTML)
 
 import os
 import time
@@ -18,8 +18,10 @@ TARGET_BOOKMAKER_HREF_PARTIAL = "betano"
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
-# 🛠️ FUNCȚII AJUTĂTOARE SELENIUM 
+# 🛠️ FUNCȚII AJUTĂTOARE SELENIUM (Păstrăm doar cele esențiale)
 # ------------------------------------------------------------------------------
+
+# ... (find_element, ffi, ffi2, get_opening_odd_from_click - Rămân la fel) ...
 
 def find_element(driver, by_method, locator):
     """Găsește un element sau returnează None/False."""
@@ -78,13 +80,7 @@ def get_opening_odd_from_click(driver, element_to_click_xpath):
         ffi2(driver, '//body')
         return f'Eroare Click: {e}'
 
-def save_screenshot(driver, filename="debug_screenshot.png"):
-    """Salvează o captură de ecran pentru debugging."""
-    try:
-        driver.save_screenshot(filename)
-        return f"Captura de ecran salvată ca: {filename}"
-    except Exception as e:
-        return f"Eroare la salvarea capturii de ecran: {e}"
+# --- Funcția de captură de ecran eliminată ---
 
 # ------------------------------------------------------------------------------
 # 🚀 FUNCȚIA PRINCIPALĂ DE SCRAPING
@@ -153,7 +149,7 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         time.sleep(2) 
         
         all_line_rows = driver.find_elements(By.XPATH, LINE_ROWS_XPATH)
-        screenshot_ou_done = False # Variabilă de control screenshot OU
+        html_ou_dumped = False # Variabilă de control dump HTML
         
         for line_row_element in all_line_rows:
             
@@ -162,12 +158,11 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
                 driver.execute_script("arguments[0].click();", line_row_element)
                 time.sleep(1) 
                 
-                # **!!! DEBUG VIZUAL: CAPTURĂ DE ECRAN DUPĂ CLIC !!!**
-                if not screenshot_ou_done:
-                    screenshot_path = save_screenshot(driver, "debug_ou_open_line.png")
-                    results['Debug_Screenshot_OU'] = screenshot_path
-                    screenshot_ou_done = True
-                    # Dacă ai nevoie să vezi și erorile de extracție, nu te opri aici
+                # **!!! DEBUG: DUMP HTML DUPĂ CLIC !!!**
+                if not html_ou_dumped:
+                    # Extrage întregul cod sursă al paginii
+                    results['Debug_HTML_OU'] = driver.page_source 
+                    html_ou_dumped = True
                 
             except Exception as e:
                 continue 
@@ -188,10 +183,54 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
                 if close_home and close_away and close_home != 'N/A' and close_away != 'N/A':
                     
                     # Extragere XPath absolut pentru cota Home 
-                    home_odd_xpath_full = driver.execute_script("""...""", home_odd_element)
+                    home_odd_xpath_full = driver.execute_script("""
+                        var element = arguments[0]; 
+                        var xpath = ''; 
+                        while (element && element.parentNode && element.tagName !== 'BODY') { 
+                            var tag = element.tagName;
+                            var parent = element.parentNode; 
+                            var siblings = parent.children; 
+                            var count = 0; 
+                            var index = 0; 
+                            for (var i = 0; i < siblings.length; i++) { 
+                                var sibling = siblings[i]; 
+                                if (sibling.tagName === tag) { 
+                                    count++; 
+                                    if (sibling === element) { index = count; } 
+                                } 
+                            } 
+                            var tagName = tag.toLowerCase(); 
+                            var xpathIndex = index > 1 ? '[' + index + ']' : ''; 
+                            xpath = '/' + tagName + xpathIndex + xpath; 
+                            element = parent; 
+                        } 
+                        return '//body' + xpath;
+                    """, home_odd_element)
                     
                     # Extragere XPath absolut pentru cota Away
-                    away_odd_xpath_full = driver.execute_script("""...""", away_odd_element)
+                    away_odd_xpath_full = driver.execute_script("""
+                        var element = arguments[0]; 
+                        var xpath = ''; 
+                        while (element && element.parentNode && element.tagName !== 'BODY') { 
+                            var tag = element.tagName;
+                            var parent = element.parentNode; 
+                            var siblings = parent.children; 
+                            var count = 0; 
+                            var index = 0; 
+                            for (var i = 0; i < siblings.length; i++) { 
+                                var sibling = siblings[i]; 
+                                if (sibling.tagName === tag) { 
+                                    count++; 
+                                    if (sibling === element) { index = count; } 
+                                } 
+                            } 
+                            var tagName = tag.toLowerCase(); 
+                            var xpathIndex = index > 1 ? '[' + index + ']' : ''; 
+                            xpath = '/' + tagName + xpathIndex + xpath; 
+                            element = parent; 
+                        } 
+                        return '//body' + xpath;
+                    """, away_odd_element)
                     
                     # Extragerea cotelor de deschidere (folosind funcția complexă)
                     open_home = get_opening_odd_from_click(driver, home_odd_xpath_full)
@@ -210,10 +249,7 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
                         ou_lines.append(data)
                         break 
                         
-            except NoSuchElementException as e:
-                # Adăugăm un debug în rezultate dacă extragem o captură, dar nu găsim elementul Betano
-                if screenshot_ou_done and 'Betano_OU_Extraction_Error' not in results:
-                    results['Betano_OU_Extraction_Error'] = f"NoSuchElement: {e}"
+            except NoSuchElementException:
                 pass 
             
             # 3. Curățare: Dăm clic din nou pe rând pentru a-l închide.
@@ -249,7 +285,7 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         time.sleep(2) 
 
         all_line_rows = driver.find_elements(By.XPATH, LINE_ROWS_XPATH)
-        screenshot_ah_done = False # Variabilă de control screenshot AH
+        html_ah_dumped = False # Variabilă de control dump HTML
 
         for line_row_element in all_line_rows:
             
@@ -258,11 +294,10 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
                 driver.execute_script("arguments[0].click();", line_row_element)
                 time.sleep(1) 
                 
-                # **!!! DEBUG VIZUAL: CAPTURĂ DE ECRAN DUPĂ CLIC !!!**
-                if not screenshot_ah_done:
-                    screenshot_path = save_screenshot(driver, "debug_ah_open_line.png")
-                    results['Debug_Screenshot_AH'] = screenshot_path
-                    screenshot_ah_done = True
+                # **!!! DEBUG: DUMP HTML DUPĂ CLIC !!!**
+                if not html_ah_dumped:
+                    results['Debug_HTML_AH'] = driver.page_source
+                    html_ah_dumped = True
 
             except Exception as e:
                 continue 
@@ -305,9 +340,7 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
                         handicap_lines.append(data)
                         break
 
-            except NoSuchElementException as e:
-                if screenshot_ah_done and 'Betano_AH_Extraction_Error' not in results:
-                    results['Betano_AH_Extraction_Error'] = f"NoSuchElement: {e}"
+            except NoSuchElementException:
                 pass 
             
             # 3. Curățare: Dăm clic din nou pe rând pentru a-l închide.
