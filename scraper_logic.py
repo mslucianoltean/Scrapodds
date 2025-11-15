@@ -41,6 +41,7 @@ def scrape_basketball_match_full_data_filtered(ou_link: str, ah_link: str) -> Di
     
     if not match_slug:
         results['Error'] = "Eroare: Nu s-a putut extrage slug-ul meciului din URL-ul O/U furnizat."
+        results['Input_OU_Link'] = ou_link
         return dict(results)
     
     results['Match_Slug'] = match_slug
@@ -48,10 +49,7 @@ def scrape_basketball_match_full_data_filtered(ou_link: str, ah_link: str) -> Di
     # ----------------------------------------------------
     # PAS 2: Simulare Linii extrase (Folosim liniile confirmate de tine)
     # ----------------------------------------------------
-    # Linii Over/Under pe care le-ai furnizat
     simulated_ou_lines = [216.5, 217.5, 218.5, 219.5, 220.5]
-    
-    # Linii Asian Handicap (presupunem aceeași structură)
     simulated_ah_lines = [2.5, 3.5, 4.5] 
 
     # ----------------------------------------------------
@@ -60,8 +58,7 @@ def scrape_basketball_match_full_data_filtered(ou_link: str, ah_link: str) -> Di
     generated_ou_urls: List[str] = []
     
     for line_value in simulated_ou_lines:
-        # Folosim formatul .2f pentru a asigura că numerele au două zecimale, 
-        # așa cum necesită structura Oddsportal
+        # Folosim formatul .2f pentru a asigura că numerele au două zecimale
         new_url = BASE_URL_TEMPLATE.format(match_slug=match_slug, line_value=line_value)
         generated_ou_urls.append(new_url)
         
@@ -81,4 +78,3 @@ def scrape_basketball_match_full_data_filtered(ou_link: str, ah_link: str) -> Di
     return dict(results)
 
 # P.S.: Codul nu mai folosește Selenium/Chromedriver, deci nu necesită inițializare/închidere.
-# Te rog să îmi dai rezultatul rulării acestui cod (V42.0)
