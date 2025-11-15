@@ -4,7 +4,7 @@ import pandas as pd
 import json
 import os
 # Asigură-te că numele fișierului de logică este corect
-from scraper_logic import scrape_basketball_match_full_data_filtered, TARGET_BOOKMAKER
+from scraper_logic import scrape_basketball_match_full_data_filtered
 from scraper_logic import scrape_basketball_match_full_data_filtered # Importăm funcția de scraping
 
 # ----------------------------------------------------------------------
