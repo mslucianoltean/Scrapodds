@@ -1,4 +1,4 @@
-# scraper_logic.py (VERSIUNEA 46.0 - CORECȚIE ANTI-DETECTARE)
+# scraper_logic.py (VERSIUNEA 47.0 - STEALTH MODE)
 
 import os
 import time
@@ -20,12 +20,11 @@ from typing import Optional, Dict, Any, List
 TARGET_BOOKMAKER_HREF_PARTIAL = "betano" 
 BASE_URL_TEMPLATE = "https://www.oddsportal.com/basketball/usa/nba/{match_slug}/#over-under;1;{line_value:.2f};0"
 BASE_URL_AH_TEMPLATE = "https://www.oddsportal.com/basketball/usa/nba/{match_slug}/#ah;1;{line_value:.2f};0"
-# User-Agent-ul care simulează Chrome pe Windows 10
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
-# 🛠️ FUNCȚII AJUTĂTOARE SELENIUM ȘI PARSARE (Păstrăm V44.0)
+# 🛠️ FUNCȚII AJUTĂTOARE SELENIUM ȘI PARSARE 
 # ------------------------------------------------------------------------------
 
 def wait_for_collapsed_rows(driver: webdriver.Chrome, ou_or_ah_link: str, ou_or_ah_testid: str) -> bool:
@@ -35,9 +34,9 @@ def wait_for_collapsed_rows(driver: webdriver.Chrome, ou_or_ah_link: str, ou_or_
     wait_xpath = f'//div[@data-testid="{ou_or_ah_testid}"]'
     
     try:
-        wait = WebDriverWait(driver, 20) 
+        wait = WebDriverWait(driver, 25) # Timp de așteptare mărit
         wait.until(EC.presence_of_element_located((By.XPATH, wait_xpath)))
-        time.sleep(3) 
+        time.sleep(5) # PAUZĂ MĂRITĂ PENTRU ÎNCĂRCAREA AJAX
         return True
     except TimeoutException:
         return False
@@ -103,7 +102,7 @@ def get_opening_odd_from_click(driver: webdriver.Chrome, element_to_click: WebEl
 
 
 # ------------------------------------------------------------------------------
-# 🚀 FUNCȚIA PRINCIPALĂ DE SCRAPING (INCLUSIV LOGICA CORECȚIEI PANDAS)
+# 🚀 FUNCȚIA PRINCIPALĂ DE SCRAPING 
 # ------------------------------------------------------------------------------
 
 def scrape_basketball_match_full_data_filtered(ou_link: str, ah_link: str) -> Dict[str, Any]:
@@ -124,8 +123,9 @@ def scrape_basketball_match_full_data_filtered(ou_link: str, ah_link: str) -> Di
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--window-size=1920,1080") 
-    # ADAUGĂ USER-AGENT PENTRU A EVITA DETECTAREA BROWSERULUI
     chrome_options.add_argument(f"user-agent={USER_AGENT}")
+    # CORECȚIA CRITICĂ: Dezactivarea funcțiilor de detectare Selenium
+    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
     
     chrome_options.binary_location = os.environ.get("GOOGLE_CHROME_BIN", "/usr/bin/chromium")
     chromedriver_path = os.environ.get("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
@@ -179,6 +179,9 @@ def scrape_basketball_match_full_data_filtered(ou_link: str, ah_link: str) -> Di
                 except NoSuchElementException:
                     continue 
             
+            if not line_values:
+                 results['O/U_Message'] = "Gata! Am trecut de anti-detectare, dar nu am găsit linii. Posibil XPath greșit."
+
             # 2. Parcurge fiecare linie (URL) nou generată și extrage cotele
             for line_value in sorted(list(line_values)):
                 new_url = BASE_URL_TEMPLATE.format(match_slug=match_slug, line_value=line_value)
@@ -216,7 +219,7 @@ def scrape_basketball_match_full_data_filtered(ou_link: str, ah_link: str) -> Di
                 except Exception:
                     continue
         else:
-            results['O/U_Message'] = "Eroare: Nu s-au putut încărca rândurile O/U (Posibil anti-scraping)."
+            results['O/U_Message'] = "Eroare: Rândurile O/U NU au apărut după 25 de secunde (Detectare browser). **Problemă de mediu**."
 
 
         # ----------------------------------------------------
@@ -237,6 +240,9 @@ def scrape_basketball_match_full_data_filtered(ou_link: str, ah_link: str) -> Di
                 except NoSuchElementException:
                     continue
             
+            if not line_values_ah:
+                 results['AH_Message'] = "Gata! Am trecut de anti-detectare, dar nu am găsit linii AH. Posibil XPath greșit."
+
             for line_value in sorted(list(line_values_ah)):
                 new_url = BASE_URL_AH_TEMPLATE.format(match_slug=match_slug, line_value=line_value)
                 
@@ -274,7 +280,7 @@ def scrape_basketball_match_full_data_filtered(ou_link: str, ah_link: str) -> Di
                     continue
 
         else:
-            results['AH_Message'] = "Eroare: Nu s-au putut încărca rândurile AH (Posibil anti-scraping)."
+            results['AH_Message'] = "Eroare: Rândurile AH NU au apărut după 25 de secunde (Detectare browser). **Problemă de mediu**."
             
     except Exception as e:
         results['Runtime_Error'] = f"A apărut o eroare neașteptată în timpul scraping-ului: {e}"
@@ -283,6 +289,7 @@ def scrape_basketball_match_full_data_filtered(ou_link: str, ah_link: str) -> Di
         if driver:
             driver.quit() 
             
+    # Asigurăm că returnăm listele de date, chiar dacă sunt goale sau conțin date parțiale
     results['Over_Under_Lines'] = ou_lines
     results['Handicap_Lines'] = handicap_lines
             
