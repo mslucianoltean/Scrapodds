@@ -1,4 +1,4 @@
-# scraper_logic.py (VERSIUNEA 20.0 - SCROLL & CLIC FALS STABIL)
+# scraper_logic.py (VERSIUNEA 21.0 - CSS MANIPULATION)
 
 import os
 import time
@@ -39,7 +39,7 @@ def ffi(element_or_driver, by_method, locator):
 def ffi2(driver, xpath):
     """Dă click pe elementul de la xpath dacă există (folosind JS)."""
     try:
-        # Așteptăm elementul să fie click-uibil
+        # Așteptăm elementul să fie click-uibil (folosit pentru tab-uri și cotele de deschidere)
         wait_short = WebDriverWait(driver, 10) 
         clickable_element = wait_short.until(EC.element_to_be_clickable((By.XPATH, xpath)))
         driver.execute_script("arguments[0].click();", clickable_element)
@@ -70,6 +70,7 @@ def get_opening_odd_from_click(driver, element_to_click_xpath):
         
         opening_odd_text = opening_odd_element.text.strip()
         
+        # Dăm click pe body pentru a închide popup-ul
         ffi2(driver, '//body') 
         time.sleep(0.2) 
         
@@ -94,7 +95,7 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
     results['Match'] = 'Scraping activat'
     driver = None 
     
-    # --- Inițializare driver ---
+    # --- Inițializare driver (configurația rămâne aceeași) ---
     chrome_options = Options()
     chrome_options.add_argument("--headless")
     chrome_options.add_argument("--no-sandbox")
@@ -117,12 +118,12 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
     try:
         wait = WebDriverWait(driver, 30)
         
-        # Punctele de referință
+        # Punctele de referință (XPath-urile bazate pe text)
         OU_DIV_TEXT_XPATH = "//div[text()='Over/Under']" 
         AH_DIV_TEXT_XPATH = "//div[text()='Asian Handicap']" 
         LINE_ROWS_XPATH = '//div[contains(@class, "table-main__row--details-line-wrapper")]'
 
-        # Căi interne
+        # Căi interne (rămân aceleași)
         OU_HOME_ODD_REL_PATH = '/div[3]/div/div/p' 
         OU_AWAY_ODD_REL_PATH = '/div[4]/div/div/p' 
         BETANO_ROW_REL_XPATH = f'.//a[contains(@href, "{TARGET_BOOKMAKER_HREF_PARTIAL}")]/ancestor::div[contains(@class, "table-main__row--details-line")]'
@@ -133,33 +134,24 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         # ----------------------------------------------------
         driver.get(ou_link)
         
-        # ACȚIUNE 1: Așteptăm body-ul și facem refresh + Scroll
         try:
             wait.until(EC.presence_of_element_located((By.XPATH, '//body')))
             driver.refresh()
             time.sleep(2) 
-            # Forțăm scroll-ul sus pentru vizibilitatea tab-urilor
             driver.execute_script("window.scrollTo(0, 0);")
-            time.sleep(8) # Așteptare lungă pentru randarea inițială
+            time.sleep(8) 
 
-            # ACȚIUNE 2: CLIC FALS (AH) și CLIC CORECT (OU) pentru a forța randarea
-            
-            # 2a. Încercăm să dăm clic pe un tab diferit (Asian Handicap)
-            if not ffi2(driver, AH_DIV_TEXT_XPATH):
-                # Nu e o eroare critică, dar e bine de știut că navigarea nu merge
-                print("DEBUG: Clicul fals pe Asian Handicap a eșuat sau nu a fost necesar.")
-
-            time.sleep(2) # Așteptăm după clicul fals
-
-            # 2b. Clic pe tabul Over/Under 
-            if not ffi2(driver, OU_DIV_TEXT_XPATH):
+            # ACȚIUNE 1: Asigurăm că tabul OU este activat (clic fals/corect)
+            ffi2(driver, AH_DIV_TEXT_XPATH) # Clic fals
+            time.sleep(1)
+            if not ffi2(driver, OU_DIV_TEXT_XPATH): # Clic corect
                  results['Error'] = f"Eroare: Nu a putut fi găsit/apăsat tabul Over/Under ('{OU_DIV_TEXT_XPATH}')."
                  driver.quit()
                  return dict(results)
                  
-            time.sleep(2) # Așteptăm după clicul corect
+            time.sleep(2) 
             
-            # ACȚIUNE 3: Așteptăm liniile de cote
+            # ACȚIUNE 2: Așteptăm liniile de cote
             wait.until(EC.visibility_of_element_located((By.XPATH, LINE_ROWS_XPATH)))
 
         except:
@@ -170,24 +162,42 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         ou_lines = []
         time.sleep(3) 
         
-        # Căutăm toate rândurile de linii de cote (elemente)
         all_line_rows = driver.find_elements(By.XPATH, LINE_ROWS_XPATH)
         
         # Iterăm prin rândurile găsite și extragem cotele
         for line_row_element in all_line_rows:
             
-            driver.execute_script("arguments[0].click();", line_row_element)
-            time.sleep(1.5) 
+            # **!!! NOU: MANIPULARE CSS PENTRU A FORȚA AFIRAREA BOOKMAKERILOR !!!**
+            driver.execute_script("""
+                var lineElement = arguments[0];
+                // Găsim detaliile ascunse (care conțin bookmakerii) și le facem vizibile
+                var detailsWrapper = lineElement.querySelector('.table-main__details-wrapper');
+                if (detailsWrapper) {
+                    detailsWrapper.style.display = 'block';
+                    detailsWrapper.style.visibility = 'visible';
+                }
+                // Alternativ, putem încerca să facem vizibili toți copiii
+                var children = lineElement.children;
+                for (var i = 0; i < children.length; i++) {
+                    var child = children[i];
+                    child.style.display = 'block'; 
+                    child.style.visibility = 'visible';
+                }
+            """, line_row_element)
+
+            time.sleep(1.5) # Așteptăm ca browser-ul să aplice modificările CSS
 
             try:
+                # ACȚIUNE 3: Căutarea rândului Betano (ar trebui să fie vizibil acum)
                 betano_row_element = line_row_element.find_element(By.XPATH, BETANO_ROW_REL_XPATH)
                 
+                # Extracția liniei și a numelui bookmakerului
                 line_raw_text = ffi(line_row_element, By.XPATH, LINE_REL_PATH)
                 line = line_raw_text.strip() if line_raw_text else 'N/A'
-                
                 bm_name_element = betano_row_element.find_element(By.XPATH, f'.//p[contains(text(), "Betano")]')
                 bm_name = bm_name_element.text.strip() if bm_name_element else "Betano.ro"
 
+                # Extragere XPath absolut pentru cotele de închidere
                 betano_row_xpath_full = driver.execute_script("""
                     var element = arguments[0]; 
                     var xpath = ''; 
@@ -221,6 +231,7 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
                 
                 if close_home and close_away and close_home != 'N/A' and close_away != 'N/A':
                     
+                    # Extragere cote de deschidere (necesită clic funcțional)
                     open_home = get_opening_odd_from_click(driver, home_odd_xpath)
                     time.sleep(0.5)
                     open_away = get_opening_odd_from_click(driver, away_odd_xpath)
@@ -236,13 +247,15 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
                     if data['Line'] != 'N/A':
                         ou_lines.append(data)
                         
-                        driver.execute_script("arguments[0].click();", line_row_element)
-                        break 
+                        # Închidem vizual rândul (deși nu e strict necesar, e bine pentru cleanup)
+                        driver.execute_script("arguments[0].style.display='none';", betano_row_element)
+                        break # Extragem doar prima linie Betano găsită
                         
             except NoSuchElementException:
                 pass 
             
-            driver.execute_script("arguments[0].click();", line_row_element)
+            # Curățare: Asigurăm că rândul (linia) este ascuns înapoi pentru coerența DOM-ului virtual
+            driver.execute_script("arguments[0].style.display='none';", line_row_element)
             time.sleep(0.5) 
         
         results['Over_Under_Lines'] = ou_lines
@@ -253,7 +266,6 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         
         driver.get(ah_link)
         
-        # ACȚIUNE 1: Așteptăm body-ul și facem refresh + Scroll
         try:
             wait.until(EC.presence_of_element_located((By.XPATH, '//body')))
             driver.refresh()
@@ -261,22 +273,17 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
             driver.execute_script("window.scrollTo(0, 0);")
             time.sleep(8) 
             
-            # ACȚIUNE 2: CLIC FALS (OU) și CLIC CORECT (AH)
-            
-            # 2a. Încercăm să dăm clic pe un tab diferit (Over/Under)
-            if not ffi2(driver, OU_DIV_TEXT_XPATH):
-                print("DEBUG: Clicul fals pe Over/Under a eșuat sau nu a fost necesar.")
-            time.sleep(2) 
-            
-            # 2b. Clic pe tabul Asian Handicap
-            if not ffi2(driver, AH_DIV_TEXT_XPATH):
+            # ACȚIUNE 1: Asigurăm că tabul AH este activat
+            ffi2(driver, OU_DIV_TEXT_XPATH) # Clic fals
+            time.sleep(1)
+            if not ffi2(driver, AH_DIV_TEXT_XPATH): # Clic corect
                  results['Error_AH'] = f"Eroare: Nu a putut fi găsit/apăsat tabul Asian Handicap ('{AH_DIV_TEXT_XPATH}')."
                  driver.quit()
                  return dict(results)
                  
             time.sleep(2) 
             
-            # ACȚIUNE 3: Așteptăm liniile de cote
+            # ACȚIUNE 2: Așteptăm liniile de cote
             wait.until(EC.visibility_of_element_located((By.XPATH, LINE_ROWS_XPATH)))
             
         except:
@@ -292,15 +299,30 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         # Extrage liniile AH 
         for line_row_element in all_line_rows:
             
-            driver.execute_script("arguments[0].click();", line_row_element)
+            # **!!! NOU: MANIPULARE CSS PENTRU A FORȚA AFIRAREA BOOKMAKERILOR !!!**
+            driver.execute_script("""
+                var lineElement = arguments[0];
+                var detailsWrapper = lineElement.querySelector('.table-main__details-wrapper');
+                if (detailsWrapper) {
+                    detailsWrapper.style.display = 'block';
+                    detailsWrapper.style.visibility = 'visible';
+                }
+                var children = lineElement.children;
+                for (var i = 0; i < children.length; i++) {
+                    var child = children[i];
+                    child.style.display = 'block'; 
+                    child.style.visibility = 'visible';
+                }
+            """, line_row_element)
             time.sleep(1.5) 
 
             try:
+                # ACȚIUNE 3: Căutarea rândului Betano
                 betano_row_element = line_row_element.find_element(By.XPATH, BETANO_ROW_REL_XPATH)
                 
+                # Extragerea liniei și a numelui bookmakerului
                 line_raw_text = ffi(line_row_element, By.XPATH, LINE_REL_PATH)
                 line = line_raw_text.strip() if line_raw_text else 'N/A'
-                
                 bm_name_element = betano_row_element.find_element(By.XPATH, f'.//p[contains(text(), "Betano")]')
                 bm_name = bm_name_element.text.strip() if bm_name_element else "Betano.ro"
 
@@ -352,13 +374,13 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
                     if data['Line'] != 'N/A':
                         handicap_lines.append(data)
                         
-                        driver.execute_script("arguments[0].click();", line_row_element)
+                        driver.execute_script("arguments[0].style.display='none';", betano_row_element)
                         break
 
             except NoSuchElementException:
                 pass 
             
-            driver.execute_script("arguments[0].click();", line_row_element)
+            driver.execute_script("arguments[0].style.display='none';", line_row_element)
             time.sleep(0.5) 
 
         results['Handicap_Lines'] = handicap_lines
