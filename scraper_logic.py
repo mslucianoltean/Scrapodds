@@ -2,206 +2,208 @@ import requests
 from bs4 import BeautifulSoup
 import re
 import time
-import urllib3
 import json
-
-# Dezactivează avertismentele SSL
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+from playwright.sync_api import sync_playwright
 
 def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
     """
-    SCRAPING REAL - Cu fix pentru formatul JSON Streamlit
+    SCRAPING CU PLAYWRIGHT - Cel mai bun pentru JavaScript
     """
     
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    }
-    
-    # STRUCTURA CORECTĂ PENTRU STREAMLIT
     results = {
-        'Match': 'Scraping Real OddsPortal',
+        'Match': 'Scraping cu Playwright',
         'Over_Under_Lines': [],
         'Handicap_Lines': [],
         'Debug': {},
         'Error': None
     }
     
-    def extract_betano_odds(url, market_type):
-        """Extrage cotele Betano"""
+    def extract_betano_odds_playwright(page, url, market_type):
+        """Extrage cotele Betano folosind Playwright"""
         try:
             print(f"  📡 Accesez: {url}")
-            response = requests.get(url, headers=headers, timeout=15, verify=False)
-            soup = BeautifulSoup(response.content, 'html.parser')
             
-            # Găsește Betano
-            betano_row = None
-            betano_links = soup.find_all('a', href=re.compile(r'betano', re.IGNORECASE))
+            # Navighează la URL-ul direct cu linia
+            page.goto(url, wait_until='networkidle', timeout=30000)
             
-            for link in betano_links:
-                parent_tr = link.find_parent('tr')
-                if parent_tr:
-                    betano_row = parent_tr
-                    break
+            # Așteaptă să se încarce conținutul
+            page.wait_for_timeout(3000)
             
-            if betano_row:
+            # Caută Betano în pagină
+            betano_selector = "a[href*='betano']"
+            betano_element = page.query_selector(betano_selector)
+            
+            if betano_element:
                 print("  ✅ Betano găsit!")
-                odds_elements = betano_row.find_all('p', class_='odds-text line-through')
                 
-                if market_type == 'ou' and len(odds_elements) >= 2:
-                    return odds_elements[0].get_text(strip=True), odds_elements[1].get_text(strip=True)
-                elif market_type == 'ah' and len(odds_elements) >= 2:
-                    return odds_elements[0].get_text(strip=True), odds_elements[1].get_text(strip=True)
+                # Găsește rândul Betano
+                betano_row = page.query_selector(f"{betano_selector} >> xpath=../..")
+                
+                if betano_row:
+                    # Extrage cotele "line-through"
+                    odds_selector = "p.odds-text.line-through"
+                    odds_elements = betano_row.query_selector_all(odds_selector)
+                    
+                    if market_type == 'ou' and len(odds_elements) >= 2:
+                        over_odd = odds_elements[0].inner_text().strip()
+                        under_odd = odds_elements[1].inner_text().strip()
+                        return over_odd, under_odd
+                    
+                    elif market_type == 'ah' and len(odds_elements) >= 2:
+                        home_odd = odds_elements[0].inner_text().strip()
+                        away_odd = odds_elements[1].inner_text().strip()
+                        return home_odd, away_odd
             
             return 'N/A', 'N/A'
             
         except Exception as e:
-            print(f"  ❌ Eroare cote: {e}")
+            print(f"  ❌ Eroare extragere cote: {e}")
             return 'N/A', 'N/A'
     
     try:
-        print("=== ÎNCEPE SCRAPING REAL ===")
+        print("=== ÎNCEPE SCRAPING CU PLAYWRIGHT ===")
         
-        # OVER/UNDER
-        print("🔍 Extrag linii Over/Under...")
-        response_ou = requests.get(ou_link, headers=headers, timeout=15, verify=False)
-        soup_ou = BeautifulSoup(response_ou.content, 'html.parser')
-        
-        ou_lines = []
-        
-        # Caută liniile Over/Under
-        ou_elements = soup_ou.find_all('p', string=re.compile(r'Over/Under'))
-        
-        if not ou_elements:
-            # Încearcă alt selector
-            all_elements = soup_ou.find_all(string=re.compile(r'Over/Under'))
-            ou_elements = [elem for elem in all_elements if 'Over/Under' in str(elem)]
-        
-        print(f"📊 Elemente Over/Under găsite: {len(ou_elements)}")
-        
-        # Extrage liniile unice
-        unique_lines = []
-        for element in ou_elements[:15]:
-            try:
-                text = element if isinstance(element, str) else element.get_text()
-                match = re.search(r'Over/Under\s*\+?(\d+\.?\d*)', text)
-                if match:
-                    line_val = match.group(1)
-                    if line_val not in unique_lines:
-                        unique_lines.append(line_val)
-                        print(f"  📈 Linie găsită: +{line_val}")
-            except:
-                continue
-        
-        # Procesează liniile
-        for i, line_val in enumerate(unique_lines[:5]):
-            try:
-                display_line = f"+{line_val}"
-                base_url = ou_link.split('#')[0]
-                direct_url = f"{base_url}#over-under;1;{line_val};0"
-                
-                print(f"  🎯 Procesez: {display_line}")
-                
-                over_odd, under_odd = extract_betano_odds(direct_url, 'ou')
-                
-                ou_lines.append({
-                    'Line': display_line,
-                    'Over_Close': over_odd,
-                    'Under_Close': under_odd,
-                    'Bookmaker': 'Betano.ro',
-                    'Direct_URL': direct_url
-                })
-                
-                time.sleep(1)
-                
-            except Exception as e:
-                print(f"  ⚠️ Eroare linia {i+1}: {e}")
-                continue
-        
-        # ASIAN HANDICAP
-        print("\n🔍 Extrag linii Asian Handicap...")
-        response_ah = requests.get(ah_link, headers=headers, timeout=15, verify=False)
-        soup_ah = BeautifulSoup(response_ah.content, 'html.parser')
-        
-        ah_lines = []
-        
-        ah_elements = soup_ah.find_all('p', string=re.compile(r'Asian Handicap'))
-        
-        if not ah_elements:
-            all_elements = soup_ah.find_all(string=re.compile(r'Asian Handicap'))
-            ah_elements = [elem for elem in all_elements if 'Asian Handicap' in str(elem)]
-        
-        print(f"📊 Elemente Asian Handicap găsite: {len(ah_elements)}")
-        
-        # Extrage liniile AH unice
-        ah_unique_lines = []
-        for element in ah_elements[:15]:
-            try:
-                text = element if isinstance(element, str) else element.get_text()
-                match = re.search(r'Asian Handicap\s*([+-]?\d+\.?\d*)', text)
-                if match:
-                    line_val = match.group(1)
-                    if line_val not in ah_unique_lines:
-                        ah_unique_lines.append(line_val)
-                        print(f"  📈 Linie AH găsită: {line_val}")
-            except:
-                continue
-        
-        # Procesează liniile AH
-        for i, line_val in enumerate(ah_unique_lines[:3]):
-            try:
-                clean_val = line_val.replace('+', '').replace('-', '')
-                base_url = ah_link.split('#')[0]
-                direct_url = f"{base_url}#ah;1;{clean_val};0"
-                
-                print(f"  🎯 Procesez AH: {line_val}")
-                
-                home_odd, away_odd = extract_betano_odds(direct_url, 'ah')
-                
-                ah_lines.append({
-                    'Line': line_val,
-                    'Home_Close': home_odd,
-                    'Away_Close': away_odd,
-                    'Bookmaker': 'Betano.ro',
-                    'Direct_URL': direct_url
-                })
-                
-                time.sleep(1)
-                
-            except Exception as e:
-                print(f"  ⚠️ Eroare AH {i+1}: {e}")
-                continue
-        
-        # SALVARE REZULTATE - FORMAT CORECT
-        results['Over_Under_Lines'] = ou_lines
-        results['Handicap_Lines'] = ah_lines
-        
-        results['Debug'] = {
-            'ou_lines_found': len(ou_lines),
-            'ah_lines_found': len(ah_lines),
-            'total_ou_elements': len(ou_elements),
-            'total_ah_elements': len(ah_elements),
-            'unique_ou_lines': unique_lines,
-            'unique_ah_lines': ah_unique_lines,
-            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S')
-        }
-        
-        print(f"✅ FINAL: {len(ou_lines)} linii OU, {len(ah_lines)} linii AH")
-        
+        with sync_playwright() as p:
+            # Lansează browser-ul
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context(
+                viewport={'width': 1920, 'height': 1080},
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            )
+            page = context.new_page()
+            
+            # OVER/UNDER
+            print("🔍 Extrag linii Over/Under...")
+            page.goto(ou_link, wait_until='networkidle', timeout=30000)
+            
+            # Așteaptă să se încarce conținutul
+            page.wait_for_timeout(5000)
+            
+            # Caută toate liniile Over/Under
+            ou_lines = []
+            
+            # Selector pentru liniile Over/Under
+            line_selector = "p:has-text('Over/Under')"
+            line_elements = page.query_selector_all(line_selector)
+            
+            print(f"📊 Elemente Over/Under găsite: {len(line_elements)}")
+            
+            # Extrage textul din primele 10 elemente
+            unique_lines = []
+            for i, element in enumerate(line_elements[:10]):
+                try:
+                    text = element.inner_text().strip()
+                    print(f"  🔍 Text element {i+1}: {text}")
+                    
+                    match = re.search(r'Over/Under\s*\+?(\d+\.?\d*)', text)
+                    if match:
+                        line_val = match.group(1)
+                        if line_val not in unique_lines:
+                            unique_lines.append(line_val)
+                            print(f"  📈 Linie găsită: +{line_val}")
+                except Exception as e:
+                    print(f"  ⚠️ Eroare element {i+1}: {e}")
+                    continue
+            
+            # Procesează liniile unice
+            for i, line_val in enumerate(unique_lines[:5]):
+                try:
+                    display_line = f"+{line_val}"
+                    base_url = ou_link.split('#')[0]
+                    direct_url = f"{base_url}#over-under;1;{line_val};0"
+                    
+                    print(f"  🎯 Procesez linia {i+1}: {display_line}")
+                    
+                    over_odd, under_odd = extract_betano_odds_playwright(page, direct_url, 'ou')
+                    
+                    ou_lines.append({
+                        'Line': display_line,
+                        'Over_Close': over_odd,
+                        'Under_Close': under_odd,
+                        'Bookmaker': 'Betano.ro',
+                        'Direct_URL': direct_url
+                    })
+                    
+                    time.sleep(1)
+                    
+                except Exception as e:
+                    print(f"  ⚠️ Eroare procesare linia {i+1}: {e}")
+                    continue
+            
+            # ASIAN HANDICAP
+            print("\n🔍 Extrag linii Asian Handicap...")
+            page.goto(ah_link, wait_until='networkidle', timeout=30000)
+            page.wait_for_timeout(5000)
+            
+            ah_lines = []
+            
+            ah_selector = "p:has-text('Asian Handicap')"
+            ah_elements = page.query_selector_all(ah_selector)
+            
+            print(f"📊 Elemente Asian Handicap găsite: {len(ah_elements)}")
+            
+            # Extrage liniile AH
+            ah_unique_lines = []
+            for i, element in enumerate(ah_elements[:10]):
+                try:
+                    text = element.inner_text().strip()
+                    print(f"  🔍 Text AH {i+1}: {text}")
+                    
+                    match = re.search(r'Asian Handicap\s*([+-]?\d+\.?\d*)', text)
+                    if match:
+                        line_val = match.group(1)
+                        if line_val not in ah_unique_lines:
+                            ah_unique_lines.append(line_val)
+                            print(f"  📈 Linie AH găsită: {line_val}")
+                except Exception as e:
+                    print(f"  ⚠️ Eroare AH element {i+1}: {e}")
+                    continue
+            
+            # Procesează liniile AH
+            for i, line_val in enumerate(ah_unique_lines[:3]):
+                try:
+                    clean_val = line_val.replace('+', '').replace('-', '')
+                    base_url = ah_link.split('#')[0]
+                    direct_url = f"{base_url}#ah;1;{clean_val};0"
+                    
+                    print(f"  🎯 Procesez linia AH {i+1}: {line_val}")
+                    
+                    home_odd, away_odd = extract_betano_odds_playwright(page, direct_url, 'ah')
+                    
+                    ah_lines.append({
+                        'Line': line_val,
+                        'Home_Close': home_odd,
+                        'Away_Close': away_odd,
+                        'Bookmaker': 'Betano.ro',
+                        'Direct_URL': direct_url
+                    })
+                    
+                    time.sleep(1)
+                    
+                except Exception as e:
+                    print(f"  ⚠️ Eroare procesare AH {i+1}: {e}")
+                    continue
+            
+            # Închide browser-ul
+            browser.close()
+            
+            # Salvează rezultatele
+            results['Over_Under_Lines'] = ou_lines
+            results['Handicap_Lines'] = ah_lines
+            
+            results['Debug'] = {
+                'ou_lines_found': len(ou_lines),
+                'ah_lines_found': len(ah_lines),
+                'unique_ou_lines': unique_lines,
+                'unique_ah_lines': ah_unique_lines,
+                'strategy': 'Playwright - JavaScript rendering',
+                'timestamp': time.strftime('%Y-%m-%d %H:%M:%S')
+            }
+            
+            print(f"✅ SCRAPING COMPLETAT: {len(ou_lines)} linii OU, {len(ah_lines)} linii AH")
+    
     except Exception as e:
         results['Error'] = f"Eroare generală: {str(e)}"
-        print(f"❌ EROARE: {e}")
+        print(f"❌ EROARE CRITICĂ: {e}")
     
-    # VERIFICĂ DACA E VALID JSON
-    try:
-        json.dumps(results)  # Testează dacă e JSON valid
-        return results
-    except Exception as e:
-        print(f"❌ JSON INVALID: {e}")
-        # Returnează structură safe
-        return {
-            'Match': 'Scraping - Eroare JSON',
-            'Over_Under_Lines': [],
-            'Handicap_Lines': [],
-            'Debug': {'error': 'Invalid JSON structure'},
-            'Error': 'Format invalid'
-        }
+    return results
