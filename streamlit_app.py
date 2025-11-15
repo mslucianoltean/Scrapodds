@@ -1,10 +1,11 @@
+# streamlit_app.py (COMPLET)
 
 import streamlit as st
 import pandas as pd
 import json
 import os
 # Asigură-te că numele fișierului de logică este corect
-
+from scraper_logic import scrape_basketball_match_full_data_filtered, TARGET_BOOKMAKER
 from scraper_logic import scrape_basketball_match_full_data_filtered # Importăm funcția de scraping
 
 # ----------------------------------------------------------------------
@@ -38,18 +39,19 @@ st.markdown("---")
 
 st.info(
     f"Acest instrument extrage toate liniile (Total și Handicap) de la **{TARGET_BOOKMAKER}** "
-    f"pentru orice meci de baschet de pe OddsPortal.")
+    f"pentru orice meci de baschet de pe OddsPortal."
 st.header("URL-uri Meci (Over/Under & Asian Handicap)")
 
 # Input-uri pentru cele două URL-uri
 ou_link = st.text_input(
     "URL Over/Under (Total) Meci:",
-    placeholder="Ex: https://www.oddsportal.com/basketball/usa/nba/meci-a-meci-b-KtP8YyZj/#over-under;1")
+    placeholder="Ex: https://www.oddsportal.com/basketball/usa/nba/meci-a-meci-b-KtP8YyZj/#over-under;1"
+)
 
 # 1. Input-ul utilizatorului
 match_link = st.text_input(
     "🔗 Introduceți Link-ul OddsPortal:",
-    "https://www.oddsportal.com/basketball/usa/nba/phoenix-suns-indiana-pacers-KtP8YyZj/#home-away;1")
+    "https://www.oddsportal.com/basketball/usa/nba/phoenix-suns-indiana-pacers-KtP8YyZj/#home-away;1"
 ah_link = st.text_input(
     "URL Asian Handicap Meci:",
     placeholder="Ex: https://www.oddsportal.com/basketball/usa/nba/meci-a-meci-b-KtP8YyZj/#ah;1"
@@ -104,7 +106,7 @@ if st.button("Start Scraping", type="primary"):
             elif 'Error_Over_Under' in results:
                 st.warning(f"⚠️ Eroare la OU: {results['Error_Over_Under']}")
 
-                st.markdown("---")
+            st.markdown("---")
 
                 st.markdown("---")
                 
