@@ -1,4 +1,4 @@
-# scraper_logic.py (VERSIUNEA 29.0 - Optimizare Timeout și Sleep)
+# scraper_logic.py (VERSIUNEA 30.0 - Corecția Inițializării Driverului)
 
 import os
 import time
@@ -105,8 +105,8 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
 
     try:
         service = Service(chromedriver_path)
-        # NOU: Mărirea timeout-ului de comandă la 180 de secunde (3 minute)
-        driver = webdriver.Chrome(service=service, options=chrome_options, service_args=["--start-maximized", "--read-timeout=180"])
+        # CORECTAT: Argumentul 'service_args' eliminat.
+        driver = webdriver.Chrome(service=service, options=chrome_options)
         
     except Exception as e:
         results['Error'] = f"Eroare la inițializarea driverului Headless. Detalii: {e}"
@@ -114,12 +114,14 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
 
     # Incepe scraping-ul
     try:
+        # Setează timeout-ul de execuție al scriptului la 180s (3 minute) pentru a evita timeout-ul HTTP
+        driver.set_script_timeout(180) 
         wait = WebDriverWait(driver, 30)
         
         # Punctele de referință
         LINE_ROWS_XPATH = '//div[contains(@data-testid, "collapsed-row")]' 
 
-        # Căi interne (Rămân aceleași din V27/V28)
+        # Căi interne (din V29.0)
         HOME_ODD_REL_PATH = f'./following-sibling::div[1]//a[contains(@href, "{TARGET_BOOKMAKER_HREF_PARTIAL}")]/following-sibling::div[1]/p' 
         AWAY_ODD_REL_PATH = f'./following-sibling::div[1]//a[contains(@href, "{TARGET_BOOKMAKER_HREF_PARTIAL}")]/following-sibling::div[2]/p' 
         LINE_REL_PATH = './/p[contains(@class, "max-sm:!hidden")]'
@@ -134,7 +136,6 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
             driver.refresh()
             time.sleep(2) 
             driver.execute_script("window.scrollTo(0, 0);")
-            # REDUS: De la 8 la 5 secunde
             time.sleep(5) 
             
             wait.until(EC.visibility_of_element_located((By.XPATH, LINE_ROWS_XPATH)))
@@ -154,7 +155,6 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
             try:
                 # 1. Dăm clic pe elementul care colapsează (line_row_element)
                 driver.execute_script("arguments[0].click();", line_row_element)
-                # REDUS: De la 1.5 la 1 secundă
                 time.sleep(1) 
             except Exception as e:
                 continue 
@@ -247,7 +247,7 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
             # 3. Curățare: Dăm clic din nou pe rând pentru a-l închide.
             try:
                 driver.execute_script("arguments[0].click();", line_row_element)
-                time.sleep(0.3) # Redus
+                time.sleep(0.3) 
             except:
                 pass 
         
@@ -264,7 +264,6 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
             driver.refresh()
             time.sleep(2) 
             driver.execute_script("window.scrollTo(0, 0);")
-            # REDUS: De la 8 la 5 secunde
             time.sleep(5) 
             
             wait.until(EC.visibility_of_element_located((By.XPATH, LINE_ROWS_XPATH)))
@@ -284,7 +283,6 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
             try:
                 # 1. Dăm clic pe elementul care colapsează (line_row_element)
                 driver.execute_script("arguments[0].click();", line_row_element)
-                # REDUS: De la 1.5 la 1 secundă
                 time.sleep(1) 
             except Exception as e:
                 continue 
@@ -377,7 +375,7 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
             # 3. Curățare: Dăm clic din nou pe rând pentru a-l închide.
             try:
                 driver.execute_script("arguments[0].click();", line_row_element)
-                time.sleep(0.3) # Redus
+                time.sleep(0.3) 
             except:
                 pass 
 
