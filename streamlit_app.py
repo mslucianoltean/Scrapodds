@@ -1,43 +1,38 @@
 import streamlit as st
 import json
-from scraper_logic import scrape_basketball_match_full_data_filtered
+from scraper_logic import scrape_basketball_match_fixed
 
-st.title("🏀 OddsPortal Scraper")
+st.title("🏀 OddsPortal Scraper Betano")
 
-# Input URL-uri
-ou_url = st.text_input("URL Over/Under", "https://www.oddsportal.com/basketball/usa/nba/example")
-ah_url = st.text_input("URL Asian Handicap", "https://www.oddsportal.com/basketball/usa/nba/example")
+# Input pentru link-uri
+ou_link = st.text_input("Over/Under Link", "https://www.oddsportal.com/basketball/usa/nba/los-angeles-lakers-milwaukee-bucks-h1eGdE3C/")
+ah_link = st.text_input("Asian Handicap Link", "https://www.oddsportal.com/basketball/usa/nba/los-angeles-lakers-milwaukee-bucks-h1eGdE3C/#ah;1;3.5;0")
 
-if st.button("Start Scraping"):
-    with st.spinner("Scraping in progres..."):
-        try:
-            results = scrape_basketball_match_full_data_filtered(ou_url, ah_url)
+if st.button("🚀 Start Scraping"):
+    with st.spinner("Scraping in progress..."):
+        results = scrape_basketball_match_fixed(ou_link, ah_link)
+        
+        if results['Error']:
+            st.error(f"Error: {results['Error']}")
+        else:
+            st.success("Scraping completed!")
             
-            # AFIȘARE SIGURĂ
-            st.success("✅ Extracție finalizată!")
-            
-            # Over/Under
+            # Afișează rezultatele Over/Under
             st.subheader("📊 Over/Under Lines")
             if results['Over_Under_Lines']:
-                st.json(results['Over_Under_Lines'])
+                for line in results['Over_Under_Lines']:
+                    st.write(f"**Line {line['Line']}**: Over {line['Over_Close']} | Under {line['Under_Close']}")
             else:
-                st.info("Nu au fost găsite linii Over/Under.")
+                st.info("No Over/Under lines found")
             
-            # Asian Handicap  
+            # Afișează rezultatele Asian Handicap
             st.subheader("🎯 Asian Handicap Lines")
             if results['Handicap_Lines']:
-                st.json(results['Handicap_Lines'])
+                for line in results['Handicap_Lines']:
+                    st.write(f"**Line {line['Line']}**: Home {line['Home_Close']} | Away {line['Away_Close']}")
             else:
-                st.info("Nu au fost găsite linii Asian Handicap.")
+                st.info("No Asian Handicap lines found")
             
             # Debug info
-            if results.get('Debug'):
-                with st.expander("🔍 Debug Info"):
-                    st.json(results['Debug'])
-                    
-            # Eroare
-            if results.get('Error'):
-                st.error(f"Eroare: {results['Error']}")
-                
-        except Exception as e:
-            st.error(f"Eroare aplicație: {str(e)}")
+            st.subheader("🔍 Debug Info")
+            st.json(results['Debug'])
