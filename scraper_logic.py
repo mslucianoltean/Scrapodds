@@ -1,4 +1,4 @@
-# scraper_logic.py (VERSIUNEA 28.0 - Clic pe Linia care Colapsează)
+# scraper_logic.py (VERSIUNEA 29.0 - Optimizare Timeout și Sleep)
 
 import os
 import time
@@ -18,7 +18,7 @@ TARGET_BOOKMAKER_HREF_PARTIAL = "betano"
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
-# 🛠️ FUNCȚII AJUTĂTOARE SELENIUM 
+# 🛠️ FUNCȚII AJUTĂTOARE SELENIUM (Rămân neschimbate)
 # ------------------------------------------------------------------------------
 
 def find_element(driver, by_method, locator):
@@ -61,7 +61,8 @@ def get_opening_odd_from_click(driver, element_to_click_xpath):
         
         popup_open_odd_xpath = '//*[@id="tooltip_v"]//div[2]/p[@class="odds-text"]'
         
-        wait = WebDriverWait(driver, 5) 
+        # Reducere timeout așteptare popup
+        wait = WebDriverWait(driver, 4) 
         opening_odd_element = wait.until(EC.presence_of_element_located((By.XPATH, popup_open_odd_xpath)))
         
         opening_odd_text = opening_odd_element.text.strip()
@@ -104,7 +105,8 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
 
     try:
         service = Service(chromedriver_path)
-        driver = webdriver.Chrome(service=service, options=chrome_options)
+        # NOU: Mărirea timeout-ului de comandă la 180 de secunde (3 minute)
+        driver = webdriver.Chrome(service=service, options=chrome_options, service_args=["--start-maximized", "--read-timeout=180"])
         
     except Exception as e:
         results['Error'] = f"Eroare la inițializarea driverului Headless. Detalii: {e}"
@@ -117,15 +119,9 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         # Punctele de referință
         LINE_ROWS_XPATH = '//div[contains(@data-testid, "collapsed-row")]' 
 
-        # Căi interne 
-        
-        # Căi către cota de închidere, pornind de la rândul colapsat
-        # Cota HOME (Over): Sibling-ul care se deschide (div[1]) -> Căutăm link-ul Betano -> Navigăm la cota Home/Over 
+        # Căi interne (Rămân aceleași din V27/V28)
         HOME_ODD_REL_PATH = f'./following-sibling::div[1]//a[contains(@href, "{TARGET_BOOKMAKER_HREF_PARTIAL}")]/following-sibling::div[1]/p' 
-        
-        # Cota AWAY (Under): Cota Home/Over este urmată de Cota Away/Under 
         AWAY_ODD_REL_PATH = f'./following-sibling::div[1]//a[contains(@href, "{TARGET_BOOKMAKER_HREF_PARTIAL}")]/following-sibling::div[2]/p' 
-
         LINE_REL_PATH = './/p[contains(@class, "max-sm:!hidden")]'
 
         # ----------------------------------------------------
@@ -138,9 +134,9 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
             driver.refresh()
             time.sleep(2) 
             driver.execute_script("window.scrollTo(0, 0);")
-            time.sleep(8) 
+            # REDUS: De la 8 la 5 secunde
+            time.sleep(5) 
             
-            # Așteptăm direct liniile colapsate
             wait.until(EC.visibility_of_element_located((By.XPATH, LINE_ROWS_XPATH)))
 
         except:
@@ -149,27 +145,22 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
             return dict(results)
         
         ou_lines = []
-        time.sleep(3) 
+        time.sleep(2) 
         
         all_line_rows = driver.find_elements(By.XPATH, LINE_ROWS_XPATH)
         
-        # Iterăm prin rândurile găsite și extragem cotele
         for line_row_element in all_line_rows:
-            
-            # **!!! NOU: SIMULARE CLIC PE RÂNDUL LINIEI PENTRU DESCHIDERE !!!**
             
             try:
                 # 1. Dăm clic pe elementul care colapsează (line_row_element)
                 driver.execute_script("arguments[0].click();", line_row_element)
-                time.sleep(1.5) # Așteptăm ca detaliile (bookmakerii) să se încarce
+                # REDUS: De la 1.5 la 1 secundă
+                time.sleep(1) 
             except Exception as e:
-                # Dacă nu putem da clic, trecem la următorul rând
-                # print(f"DEBUG: Eroare la clic pe linia de cotă: {e}")
                 continue 
 
-            # 2. Încercăm să extragem datele din rândul de detaliu deschis
             try:
-                # Extragerea Liniei de cota
+                # 2. Încercăm să extragem datele din rândul de detaliu deschis
                 line_raw_text = ffi(line_row_element, By.XPATH, LINE_REL_PATH)
                 line = line_raw_text.strip() if line_raw_text else 'N/A'
                 
@@ -251,13 +242,12 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
                         break 
                         
             except NoSuchElementException:
-                # Dacă nu găsim cotele (Betano nu a fost afișat)
                 pass 
             
             # 3. Curățare: Dăm clic din nou pe rând pentru a-l închide.
             try:
                 driver.execute_script("arguments[0].click();", line_row_element)
-                time.sleep(0.5) 
+                time.sleep(0.3) # Redus
             except:
                 pass 
         
@@ -274,9 +264,9 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
             driver.refresh()
             time.sleep(2) 
             driver.execute_script("window.scrollTo(0, 0);")
-            time.sleep(8) 
+            # REDUS: De la 8 la 5 secunde
+            time.sleep(5) 
             
-            # Așteptăm direct liniile colapsate
             wait.until(EC.visibility_of_element_located((By.XPATH, LINE_ROWS_XPATH)))
             
         except:
@@ -285,25 +275,22 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
             return dict(results)
         
         handicap_lines = []
-        time.sleep(3) 
+        time.sleep(2) 
 
         all_line_rows = driver.find_elements(By.XPATH, LINE_ROWS_XPATH)
 
-        # Extrage liniile AH 
         for line_row_element in all_line_rows:
             
-            # **!!! NOU: SIMULARE CLIC PE RÂNDUL LINIEI PENTRU DESCHIDERE !!!**
             try:
                 # 1. Dăm clic pe elementul care colapsează (line_row_element)
                 driver.execute_script("arguments[0].click();", line_row_element)
-                time.sleep(1.5) # Așteptăm ca detaliile (bookmakerii) să se încarce
+                # REDUS: De la 1.5 la 1 secundă
+                time.sleep(1) 
             except Exception as e:
-                # print(f"DEBUG: Eroare la clic pe linia de cotă AH: {e}")
                 continue 
 
-            # 2. Încercăm să extragem datele din rândul de detaliu deschis
             try:
-                # Extragerea Liniei de cota
+                # 2. Încercăm să extragem datele din rândul de detaliu deschis
                 line_raw_text = ffi(line_row_element, By.XPATH, LINE_REL_PATH)
                 line = line_raw_text.strip() if line_raw_text else 'N/A'
                 
@@ -390,7 +377,7 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
             # 3. Curățare: Dăm clic din nou pe rând pentru a-l închide.
             try:
                 driver.execute_script("arguments[0].click();", line_row_element)
-                time.sleep(0.5) 
+                time.sleep(0.3) # Redus
             except:
                 pass 
 
