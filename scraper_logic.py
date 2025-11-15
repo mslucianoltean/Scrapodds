@@ -1,4 +1,4 @@
-# scraper_logic.py (VERSIUNEA 23.0 - ELIMINARE CLIC TAB CRITIC)
+# scraper_logic.py (VERSIUNEA 24.0 - DEBUG: Ocolire Click Pop-up)
 
 import os
 import time
@@ -18,7 +18,7 @@ TARGET_BOOKMAKER_HREF_PARTIAL = "betano"
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
-# 🛠️ FUNCȚII AJUTĂTOARE SELENIUM (Rămân neschimbate de la V22.0)
+# 🛠️ FUNCȚII AJUTĂTOARE SELENIUM 
 # ------------------------------------------------------------------------------
 
 def find_element(driver, by_method, locator):
@@ -44,10 +44,10 @@ def ffi2(driver, xpath):
         driver.execute_script("arguments[0].click();", clickable_element)
         return True
     except TimeoutException:
-        print(f"DEBUG: Elementul {xpath} nu a fost click-uibil (Timeout).")
+        # print(f"DEBUG: Elementul {xpath} nu a fost click-uibil (Timeout).")
         return False 
     except Exception as e:
-        print(f"DEBUG: Eroare la ffi2 pe {xpath}: {e}")
+        # print(f"DEBUG: Eroare la ffi2 pe {xpath}: {e}")
         return False
 
 def get_opening_odd_from_click(driver, element_to_click_xpath):
@@ -118,7 +118,7 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         # Punctele de referință
         LINE_ROWS_XPATH = '//div[contains(@data-testid, "collapsed-row")]' 
 
-        # Căi interne (Rămân neschimbate de la V22.0)
+        # Căi interne 
         OU_HOME_ODD_REL_PATH = '/div[3]/div/div/p' 
         OU_AWAY_ODD_REL_PATH = '/div[4]/div/div/p' 
         BETANO_ROW_REL_XPATH = f'./following-sibling::div[1]//a[contains(@href, "{TARGET_BOOKMAKER_HREF_PARTIAL}")]/ancestor::div[contains(@class, "table-main__row--details-line")]'
@@ -136,7 +136,7 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
             driver.execute_script("window.scrollTo(0, 0);")
             time.sleep(8) 
             
-            # ACȚIUNE 1: Așteptăm direct liniile colapsate (FĂRĂ CLIC PE TAB)
+            # Așteptăm direct liniile colapsate
             wait.until(EC.visibility_of_element_located((By.XPATH, LINE_ROWS_XPATH)))
 
         except:
@@ -207,26 +207,26 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
 
 
                 home_odd_xpath = betano_row_xpath_full + OU_HOME_ODD_REL_PATH
-                away_odd_xpath = betano_odd_xpath + OU_AWAY_ODD_REL_PATH # Corectat: home_odd_xpath -> betano_row_xpath_full
-
-                # **ATENȚIE: Am corectat o eroare de typo în linia de mai sus:**
-                # away_odd_xpath = betano_row_xpath_full + OU_AWAY_ODD_REL_PATH
+                away_odd_xpath = betano_row_xpath_full + OU_AWAY_ODD_REL_PATH
                 
                 close_home = ffi(driver, By.XPATH, home_odd_xpath) 
                 close_away = ffi(driver, By.XPATH, away_odd_xpath) 
                 
                 if close_home and close_away and close_home != 'N/A' and close_away != 'N/A':
                     
-                    open_home = get_opening_odd_from_click(driver, home_odd_xpath)
-                    time.sleep(0.5)
-                    open_away = get_opening_odd_from_click(driver, away_odd_xpath)
+                    # *************************************************************
+                    # **LOGICĂ SIMPLIFICATĂ: OCOLIREA EXTRAGERII COTELOR DESCHISE**
+                    # *************************************************************
+                    # open_home = get_opening_odd_from_click(driver, home_odd_xpath)
+                    # time.sleep(0.5)
+                    # open_away = get_opening_odd_from_click(driver, away_odd_xpath)
                     
                     data = {
                         'Line': line,
                         'Home_Over_Close': close_home,
-                        'Home_Over_Open': open_home,
+                        'Home_Over_Open': 'TEST: CLOSE ONLY',
                         'Away_Under_Close': close_away,
-                        'Away_Under_Open': open_away,
+                        'Away_Under_Open': 'TEST: CLOSE ONLY',
                         'Bookmaker': bm_name
                     }
                     if data['Line'] != 'N/A':
@@ -234,9 +234,11 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
                         break 
                         
             except NoSuchElementException:
+                # DEBUG: Afișează dacă nu găsește rândul Betano
+                # print(f"DEBUG: NoSuchElementException la rândul {line_row_element.text} în O/U.")
                 pass 
             
-            # Curățare: Ascundem rândul de detalii (sibling-ul)
+            # Curățare
             driver.execute_script("""
                 var lineElement = arguments[0];
                 var nextSibling = lineElement.nextElementSibling;
@@ -249,7 +251,7 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         results['Over_Under_Lines'] = ou_lines
 
         # ----------------------------------------------------
-        # ETAPA 2: Extrage cotele Handicap (Fără Clic pe Tab)
+        # ETAPA 2: Extrage cotele Handicap 
         # ----------------------------------------------------
         
         driver.get(ah_link)
@@ -261,7 +263,7 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
             driver.execute_script("window.scrollTo(0, 0);")
             time.sleep(8) 
             
-            # ACȚIUNE 1: Așteptăm direct liniile colapsate
+            # Așteptăm direct liniile colapsate
             wait.until(EC.visibility_of_element_located((By.XPATH, LINE_ROWS_XPATH)))
             
         except:
@@ -337,16 +339,19 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
                 
                 if close_home and close_away and close_home != 'N/A' and close_away != 'N/A':
                     
-                    open_home = get_opening_odd_from_click(driver, home_odd_xpath)
-                    time.sleep(0.5)
-                    open_away = get_opening_odd_from_click(driver, away_odd_xpath)
+                    # *************************************************************
+                    # **LOGICĂ SIMPLIFICATĂ: OCOLIREA EXTRAGERII COTELOR DESCHISE**
+                    # *************************************************************
+                    # open_home = get_opening_odd_from_click(driver, home_odd_xpath)
+                    # time.sleep(0.5)
+                    # open_away = get_opening_odd_from_click(driver, away_odd_xpath)
 
                     data = {
                         'Line': line,
                         'Home_Over_Close': close_home,
-                        'Home_Over_Open': open_home,
+                        'Home_Over_Open': 'TEST: CLOSE ONLY',
                         'Away_Under_Close': close_away,
-                        'Away_Under_Open': open_away,
+                        'Away_Under_Open': 'TEST: CLOSE ONLY',
                         'Bookmaker': bm_name
                     }
                     if data['Line'] != 'N/A':
@@ -354,6 +359,7 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
                         break
 
             except NoSuchElementException:
+                # print(f"DEBUG: NoSuchElementException la rândul {line_row_element.text} în A/H.")
                 pass 
             
             # Curățare
