@@ -1,4 +1,4 @@
-# scraper_logic.py (VERSIUNEA 30.0 - Corecția Inițializării Driverului)
+# scraper_logic.py (VERSIUNEA 31.0 - Clic pe Linia care Colapsează + Debug Vizual)
 
 import os
 import time
@@ -18,7 +18,7 @@ TARGET_BOOKMAKER_HREF_PARTIAL = "betano"
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
-# 🛠️ FUNCȚII AJUTĂTOARE SELENIUM (Rămân neschimbate)
+# 🛠️ FUNCȚII AJUTĂTOARE SELENIUM 
 # ------------------------------------------------------------------------------
 
 def find_element(driver, by_method, locator):
@@ -61,7 +61,6 @@ def get_opening_odd_from_click(driver, element_to_click_xpath):
         
         popup_open_odd_xpath = '//*[@id="tooltip_v"]//div[2]/p[@class="odds-text"]'
         
-        # Reducere timeout așteptare popup
         wait = WebDriverWait(driver, 4) 
         opening_odd_element = wait.until(EC.presence_of_element_located((By.XPATH, popup_open_odd_xpath)))
         
@@ -79,6 +78,13 @@ def get_opening_odd_from_click(driver, element_to_click_xpath):
         ffi2(driver, '//body')
         return f'Eroare Click: {e}'
 
+def save_screenshot(driver, filename="debug_screenshot.png"):
+    """Salvează o captură de ecran pentru debugging."""
+    try:
+        driver.save_screenshot(filename)
+        return f"Captura de ecran salvată ca: {filename}"
+    except Exception as e:
+        return f"Eroare la salvarea capturii de ecran: {e}"
 
 # ------------------------------------------------------------------------------
 # 🚀 FUNCȚIA PRINCIPALĂ DE SCRAPING
@@ -105,7 +111,6 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
 
     try:
         service = Service(chromedriver_path)
-        # CORECTAT: Argumentul 'service_args' eliminat.
         driver = webdriver.Chrome(service=service, options=chrome_options)
         
     except Exception as e:
@@ -114,7 +119,6 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
 
     # Incepe scraping-ul
     try:
-        # Setează timeout-ul de execuție al scriptului la 180s (3 minute) pentru a evita timeout-ul HTTP
         driver.set_script_timeout(180) 
         wait = WebDriverWait(driver, 30)
         
@@ -149,6 +153,7 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         time.sleep(2) 
         
         all_line_rows = driver.find_elements(By.XPATH, LINE_ROWS_XPATH)
+        screenshot_ou_done = False # Variabilă de control screenshot OU
         
         for line_row_element in all_line_rows:
             
@@ -156,6 +161,14 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
                 # 1. Dăm clic pe elementul care colapsează (line_row_element)
                 driver.execute_script("arguments[0].click();", line_row_element)
                 time.sleep(1) 
+                
+                # **!!! DEBUG VIZUAL: CAPTURĂ DE ECRAN DUPĂ CLIC !!!**
+                if not screenshot_ou_done:
+                    screenshot_path = save_screenshot(driver, "debug_ou_open_line.png")
+                    results['Debug_Screenshot_OU'] = screenshot_path
+                    screenshot_ou_done = True
+                    # Dacă ai nevoie să vezi și erorile de extracție, nu te opri aici
+                
             except Exception as e:
                 continue 
 
@@ -175,54 +188,10 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
                 if close_home and close_away and close_home != 'N/A' and close_away != 'N/A':
                     
                     # Extragere XPath absolut pentru cota Home 
-                    home_odd_xpath_full = driver.execute_script("""
-                        var element = arguments[0]; 
-                        var xpath = ''; 
-                        while (element && element.parentNode && element.tagName !== 'BODY') { 
-                            var tag = element.tagName;
-                            var parent = element.parentNode; 
-                            var siblings = parent.children; 
-                            var count = 0; 
-                            var index = 0; 
-                            for (var i = 0; i < siblings.length; i++) { 
-                                var sibling = siblings[i]; 
-                                if (sibling.tagName === tag) { 
-                                    count++; 
-                                    if (sibling === element) { index = count; } 
-                                } 
-                            } 
-                            var tagName = tag.toLowerCase(); 
-                            var xpathIndex = index > 1 ? '[' + index + ']' : ''; 
-                            xpath = '/' + tagName + xpathIndex + xpath; 
-                            element = parent; 
-                        } 
-                        return '//body' + xpath;
-                    """, home_odd_element)
+                    home_odd_xpath_full = driver.execute_script("""...""", home_odd_element)
                     
                     # Extragere XPath absolut pentru cota Away
-                    away_odd_xpath_full = driver.execute_script("""
-                        var element = arguments[0]; 
-                        var xpath = ''; 
-                        while (element && element.parentNode && element.tagName !== 'BODY') { 
-                            var tag = element.tagName;
-                            var parent = element.parentNode; 
-                            var siblings = parent.children; 
-                            var count = 0; 
-                            var index = 0; 
-                            for (var i = 0; i < siblings.length; i++) { 
-                                var sibling = siblings[i]; 
-                                if (sibling.tagName === tag) { 
-                                    count++; 
-                                    if (sibling === element) { index = count; } 
-                                } 
-                            } 
-                            var tagName = tag.toLowerCase(); 
-                            var xpathIndex = index > 1 ? '[' + index + ']' : ''; 
-                            xpath = '/' + tagName + xpathIndex + xpath; 
-                            element = parent; 
-                        } 
-                        return '//body' + xpath;
-                    """, away_odd_element)
+                    away_odd_xpath_full = driver.execute_script("""...""", away_odd_element)
                     
                     # Extragerea cotelor de deschidere (folosind funcția complexă)
                     open_home = get_opening_odd_from_click(driver, home_odd_xpath_full)
@@ -241,7 +210,10 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
                         ou_lines.append(data)
                         break 
                         
-            except NoSuchElementException:
+            except NoSuchElementException as e:
+                # Adăugăm un debug în rezultate dacă extragem o captură, dar nu găsim elementul Betano
+                if screenshot_ou_done and 'Betano_OU_Extraction_Error' not in results:
+                    results['Betano_OU_Extraction_Error'] = f"NoSuchElement: {e}"
                 pass 
             
             # 3. Curățare: Dăm clic din nou pe rând pentru a-l închide.
@@ -277,6 +249,7 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
         time.sleep(2) 
 
         all_line_rows = driver.find_elements(By.XPATH, LINE_ROWS_XPATH)
+        screenshot_ah_done = False # Variabilă de control screenshot AH
 
         for line_row_element in all_line_rows:
             
@@ -284,6 +257,13 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
                 # 1. Dăm clic pe elementul care colapsează (line_row_element)
                 driver.execute_script("arguments[0].click();", line_row_element)
                 time.sleep(1) 
+                
+                # **!!! DEBUG VIZUAL: CAPTURĂ DE ECRAN DUPĂ CLIC !!!**
+                if not screenshot_ah_done:
+                    screenshot_path = save_screenshot(driver, "debug_ah_open_line.png")
+                    results['Debug_Screenshot_AH'] = screenshot_path
+                    screenshot_ah_done = True
+
             except Exception as e:
                 continue 
 
@@ -303,54 +283,10 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
                 if close_home and close_away and close_home != 'N/A' and close_away != 'N/A':
                     
                     # Extragere XPath absolut pentru cota Home 
-                    home_odd_xpath_full = driver.execute_script("""
-                        var element = arguments[0]; 
-                        var xpath = ''; 
-                        while (element && element.parentNode && element.tagName !== 'BODY') { 
-                            var tag = element.tagName;
-                            var parent = element.parentNode; 
-                            var siblings = parent.children; 
-                            var count = 0; 
-                            var index = 0; 
-                            for (var i = 0; i < siblings.length; i++) { 
-                                var sibling = siblings[i]; 
-                                if (sibling.tagName === tag) { 
-                                    count++; 
-                                    if (sibling === element) { index = count; } 
-                                } 
-                            } 
-                            var tagName = tag.toLowerCase(); 
-                            var xpathIndex = index > 1 ? '[' + index + ']' : ''; 
-                            xpath = '/' + tagName + xpathIndex + xpath; 
-                            element = parent; 
-                        } 
-                        return '//body' + xpath;
-                    """, home_odd_element)
+                    home_odd_xpath_full = driver.execute_script("""...""", home_odd_element)
                     
                     # Extragere XPath absolut pentru cota Away
-                    away_odd_xpath_full = driver.execute_script("""
-                        var element = arguments[0]; 
-                        var xpath = ''; 
-                        while (element && element.parentNode && element.tagName !== 'BODY') { 
-                            var tag = element.tagName;
-                            var parent = element.parentNode; 
-                            var siblings = parent.children; 
-                            var count = 0; 
-                            var index = 0; 
-                            for (var i = 0; i < siblings.length; i++) { 
-                                var sibling = siblings[i]; 
-                                if (sibling.tagName === tag) { 
-                                    count++; 
-                                    if (sibling === element) { index = count; } 
-                                } 
-                            } 
-                            var tagName = tag.toLowerCase(); 
-                            var xpathIndex = index > 1 ? '[' + index + ']' : ''; 
-                            xpath = '/' + tagName + xpathIndex + xpath; 
-                            element = parent; 
-                        } 
-                        return '//body' + xpath;
-                    """, away_odd_element)
+                    away_odd_xpath_full = driver.execute_script("""...""", away_odd_element)
                     
                     # Extragerea cotelor de deschidere (folosind funcția complexă)
                     open_home = get_opening_odd_from_click(driver, home_odd_xpath_full)
@@ -369,7 +305,9 @@ def scrape_basketball_match_full_data_filtered(ou_link, ah_link):
                         handicap_lines.append(data)
                         break
 
-            except NoSuchElementException:
+            except NoSuchElementException as e:
+                if screenshot_ah_done and 'Betano_AH_Extraction_Error' not in results:
+                    results['Betano_AH_Extraction_Error'] = f"NoSuchElement: {e}"
                 pass 
             
             # 3. Curățare: Dăm clic din nou pe rând pentru a-l închide.
