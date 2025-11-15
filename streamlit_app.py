@@ -51,7 +51,7 @@ ou_link = st.text_input(
 # 1. Input-ul utilizatorului
 match_link = st.text_input(
     "🔗 Introduceți Link-ul OddsPortal:",
-    "https://www.oddsportal.com/basketball/usa/nba/phoenix-suns-indiana-pacers-KtP8YyZj/#home-away;1"
+    "https://www.oddsportal.com/basketball/usa/nba/phoenix-suns-indiana-pacers-KtP8YyZj/#home-away;1")
 ah_link = st.text_input(
     "URL Asian Handicap Meci:",
     placeholder="Ex: https://www.oddsportal.com/basketball/usa/nba/meci-a-meci-b-KtP8YyZj/#ah;1"
@@ -106,7 +106,7 @@ if st.button("Start Scraping", type="primary"):
             elif 'Error_Over_Under' in results:
                 st.warning(f"⚠️ Eroare la OU: {results['Error_Over_Under']}")
 
-            st.markdown("---")
+                st.markdown("---")
 
                 st.markdown("---")
                 
