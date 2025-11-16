@@ -25,11 +25,11 @@ def install_playwright():
         subprocess.check_call([sys.executable, "-m", "pip", "install", "playwright"])
         subprocess.check_call([sys.executable, "-m", "playwright", "install", "chromium"])
 
-def debug_complete_extraction(match_url: str, headless: bool = True):
+def extract_first_bookmaker_odds(match_url: str, headless: bool = True):
     """
-    DEBUG COMPLET: Verifică totul pas cu pas
+    Extrage cotele de la PRIMUL bookmaker (Betano) pentru toate liniile
     """
-    print("🐛 DEBUG COMPLET - Începe...")
+    print("🌐 Se extrag cotele de la PRIMUL bookmaker (Betano)...")
     
     try:
         with sync_playwright() as p:
@@ -53,127 +53,133 @@ def debug_complete_extraction(match_url: str, headless: bool = True):
             
             page = context.new_page()
             
-            # 1. Navigare
-            print(f"🌐 1. Se încarcă: {match_url}")
+            # Navigare + click pe Over/Under
+            print(f"🌐 Se încarcă pagina: {match_url}")
             page.goto(match_url, wait_until='domcontentloaded', timeout=60000)
             time.sleep(3)
-            print(f"   📄 Titlu: {page.title()}")
-            print(f"   🔗 URL: {page.url}")
             
-            # 2. Click pe Over/Under
-            print("🖱️ 2. Se caută Over/Under tab...")
-            inactive_over_under = page.locator('[data-testid="navigation-inactive-tab"]:has-text("Over/Under")')
-            print(f"   🔍 Over/Under găsit: {inactive_over_under.count()} elemente")
+            # Click pe Over/Under dacă nu suntem deja acolo
+            if '#over-under' not in page.url:
+                inactive_over_under = page.locator('[data-testid="navigation-inactive-tab"]:has-text("Over/Under")')
+                if inactive_over_under.count() > 0:
+                    inactive_over_under.first.click()
+                    print("✅ Click pe Over/Under!")
+                    time.sleep(5)
             
-            if inactive_over_under.count() > 0:
-                inactive_over_under.first.click()
-                print("   ✅ Click pe Over/Under!")
-                time.sleep(5)
-                print(f"   🔗 URL după click: {page.url}")
-            else:
-                print("   ❌ Over/Under negăsit!")
-                browser.close()
-                return {"error": "Over/Under negăsit"}
-            
-            # 3. Derulare
-            print("🔄 3. Derulare...")
-            for scroll_attempt in range(2):
+            # Derulează pentru toate liniile
+            print("🔄 Se derulează pentru toate liniile...")
+            for scroll_attempt in range(3):
                 page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                 time.sleep(2)
+            
             time.sleep(3)
             
-            # 4. Verifică liniile
-            print("📋 4. Verifică liniile...")
+            # Găsește toate liniile
             all_lines = page.locator('[data-testid="over-under-collapsed-row"]')
             line_count = all_lines.count()
-            print(f"   📊 Total linii: {line_count}")
+            print(f"📊 Total linii: {line_count}")
             
-            if line_count == 0:
-                print("   ❌ Nici o linie găsită!")
-                browser.close()
-                return {"error": "Nici o linie găsită"}
+            results = []
             
-            # 5. TEST: Prima linie
-            print("\n🔍 5. TEST - Prima linie:")
-            first_line = all_lines.first
-            line_text = first_line.locator('[data-testid="over-under-collapsed-option-box"]').first.inner_text()
-            print(f"   📝 Text linie: {line_text}")
-            
-            # 6. Click pe săgeată
-            print("   🖱️ Se dă click pe săgeată...")
-            arrow = first_line.locator('.bg-provider-arrow').first
-            if arrow.is_visible():
-                arrow.click()
-                time.sleep(3)
-                
-                # 7. Verifică rândurile expandate
-                print("   📊 7. Verifică rândurile expandate...")
-                expanded_rows = page.locator('[data-testid="over-under-expanded-row"]')
-                expanded_count = expanded_rows.count()
-                print(f"      Rânduri expandate: {expanded_count}")
-                
-                if expanded_count == 0:
-                    print("      ❌ Nici un rând expandat!")
-                else:
-                    # 8. Verifică TOȚI bookmakerii
-                    print("      📋 8. Lista bookmakeri:")
-                    all_bookmakers = page.locator('[data-testid="outrights-expanded-bookmaker-name"]')
-                    bookmaker_count = all_bookmakers.count()
-                    print(f"         Total bookmakeri: {bookmaker_count}")
+            # Extrage cotele pentru fiecare linie
+            for i in range(line_count):
+                try:
+                    line = all_lines.nth(i)
+                    line_text = line.locator('[data-testid="over-under-collapsed-option-box"]').first.inner_text()
+                    print(f"\n🔍 Linia {i+1}: {line_text}")
                     
-                    betano_found = False
-                    for i in range(bookmaker_count):
-                        try:
-                            bookmaker = all_bookmakers.nth(i)
-                            name = bookmaker.inner_text().strip()
-                            print(f"         Bookmaker {i+1}: {name}")
-                            if 'Betano' in name:
-                                betano_found = True
-                                print(f"         ✅ BETANO GĂSIT la poziția {i+1}!")
-                        except:
-                            print(f"         Bookmaker {i+1}: EROARE la citire")
-                    
-                    if not betano_found:
-                        print("         ❌ BETANO NU este în listă!")
-                    
-                    # 9. Verifică dacă există vreun bookmaker cu cote
-                    print("      💰 9. Verifică cote bookmakeri:")
-                    for i in range(min(3, bookmaker_count)):  # Primele 3
-                        try:
-                            bookmaker = all_bookmakers.nth(i)
-                            bookmaker_name = bookmaker.inner_text().strip()
-                            
-                            # Găsește containerul părinte
-                            bookmaker_row = bookmaker.locator('xpath=./ancestor::div[@data-testid="over-under-expanded-row"]').first
-                            odds_containers = bookmaker_row.locator('[data-testid="odd-container"]')
-                            
-                            if odds_containers.count() >= 2:
-                                over_text = odds_containers.nth(0).locator('.odds-text').first.inner_text().strip()
-                                under_text = odds_containers.nth(1).locator('.odds-text').first.inner_text().strip()
-                                print(f"         {bookmaker_name}: Over={over_text}, Under={under_text}")
-                            else:
-                                print(f"         {bookmaker_name}: Fără cote suficiente")
-                                
-                        except Exception as e:
-                            print(f"         Eroare la bookmaker {i+1}: {e}")
-                
-                # Închide linia
-                arrow.click()
-                time.sleep(1)
-            else:
-                print("   ❌ Săgeată negăsită!")
+                    # Dă click pe săgeată
+                    arrow = line.locator('.bg-provider-arrow').first
+                    if arrow.is_visible():
+                        print("   ✅ Săgeată găsită - se dă click...")
+                        arrow.click()
+                        time.sleep(3)
+                        
+                        # IA PRIMELE COTE DIN PRIMUL RÂND (BETANO)
+                        betano_odds = extract_first_row_odds(page)
+                        
+                        if betano_odds:
+                            print(f"   ✅ Betano (primul) - Over: {betano_odds['over']}, Under: {betano_odds['under']}")
+                            results.append({
+                                'line': line_text,
+                                'over_closing': betano_odds['over'],
+                                'under_closing': betano_odds['under']
+                            })
+                        else:
+                            print(f"   ❌ Nu s-au găsit cote în primul rând")
+                            results.append({
+                                'line': line_text,
+                                'over_closing': 'N/A',
+                                'under_closing': 'N/A'
+                            })
+                        
+                        # Închide linia
+                        arrow.click()
+                        time.sleep(1)
+                    else:
+                        print(f"   ❌ Fără săgeată")
+                        results.append({
+                            'line': line_text,
+                            'over_closing': 'N/A',
+                            'under_closing': 'N/A'
+                        })
+                        
+                except Exception as e:
+                    print(f"⚠️ Eroare la linia {i+1}: {e}")
+                    results.append({
+                        'line': f"Linia {i+1} - EROARE",
+                        'over_closing': 'N/A',
+                        'under_closing': 'N/A'
+                    })
+                    continue
             
             browser.close()
             
-            return {
-                "status": "DEBUG_COMPLET",
-                "linii_gasite": line_count,
-                "randuri_expandate": expanded_count if 'expanded_count' in locals() else 0,
-                "bookmakeri_gasiti": bookmaker_count if 'bookmaker_count' in locals() else 0
-            }
+            # Numără câte linii au cote valide
+            valid_results = [r for r in results if r['over_closing'] != 'N/A']
+            print(f"\n🎯 EXTRACȚIE COMPLETĂ: {len(valid_results)} linii cu cote Betano")
+            return valid_results
                 
     except Exception as e:
-        print(f"❌ Eroare debug: {str(e)}")
+        print(f"❌ Eroare critică: {str(e)}")
         import traceback
         print(f"🔍 Detalii eroare: {traceback.format_exc()}")
-        return {"error": str(e)}
+        return None
+
+def extract_first_row_odds(page):
+    """
+    Extrage cotele din PRIMUL rând expandat (Betano)
+    """
+    try:
+        # Găsește PRIMUL rând expandat
+        first_expanded_row = page.locator('[data-testid="over-under-expanded-row"]').first
+        
+        if first_expanded_row.count() > 0:
+            # Extrage cotele din primul rând
+            odds_containers = first_expanded_row.locator('[data-testid="odd-container"]')
+            
+            if odds_containers.count() >= 2:
+                # Over - primul container
+                over_text = odds_containers.nth(0).locator('.odds-text').first.inner_text().strip()
+                
+                # Under - al doilea container  
+                under_text = odds_containers.nth(1).locator('.odds-text').first.inner_text().strip()
+                
+                try:
+                    over_odds = float(over_text)
+                    under_odds = float(under_text)
+                    
+                    return {
+                        'over': over_odds,
+                        'under': under_odds
+                    }
+                except ValueError:
+                    print(f"   ⚠️ Cote invalide: Over='{over_text}', Under='{under_text}'")
+                    return None
+        
+        print("   ❌ Niciun rând expandat găsit")
+        return None
+        
+    except Exception as e:
+        print(f"⚠️ Eroare extragere cote: {e}")
+        return None
