@@ -10,7 +10,6 @@ def install_playwright():
         from playwright.sync_api import sync_playwright
         print("✓ Playwright este instalat")
         
-        # Testează dacă chromium funcționează
         try:
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=True, timeout=15000)
@@ -25,9 +24,6 @@ def install_playwright():
         print("❌ Playwright nu este instalat. Se instalează...")
         subprocess.check_call([sys.executable, "-m", "pip", "install", "playwright"])
         subprocess.check_call([sys.executable, "-m", "playwright", "install", "chromium"])
-
-# Verifică și instalează la început
-install_playwright()
 
 def click_over_under_and_get_url(match_url: str, headless: bool = True):
     """
@@ -108,13 +104,3 @@ def click_over_under_and_get_url(match_url: str, headless: bool = True):
     except Exception as e:
         print(f"❌ Eroare critică: {str(e)}")
         return None
-
-# Test funcție
-if __name__ == "__main__":
-    test_url = "https://www.oddsportal.com/basketball/usa/nba/boston-celtics-los-angeles-clippers-OYHzgRy3/#home-away;1"
-    result = click_over_under_and_get_url(test_url, headless=False)
-    
-    if result:
-        print(f"🎉 FINAL - URL Over/Under: {result}")
-    else:
-        print("❌ Testul a eșuat")
