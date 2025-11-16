@@ -14,31 +14,7 @@ def install_playwright():
 def scrape_over_under_data(match_url: str, headless: bool = True):
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=headless)
-        
-        # SETĂRI SPECIFICE ROMÂNIA
-        context = browser.new_context(
-            viewport={'width': 1920, 'height': 1080},
-            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            locale='ro-RO',
-            timezone_id='Europe/Bucharest',
-            # Adaugă headere ca să pară că e din România
-            extra_http_headers={
-                'Accept-Language': 'ro-RO,ro;q=0.9,en;q=0.8',
-                'X-Forwarded-For': '79.112.1.1'  # IP din România
-            }
-        )
-        
-        page = context.new_page()
-        
-        # Setează cookie pentru România înainte de navigare
-        page.add_init_script("""
-            Object.defineProperty(navigator, 'language', {
-                get: function() { return 'ro-RO'; }
-            });
-            Object.defineProperty(navigator, 'languages', {
-                get: function() { return ['ro-RO', 'ro', 'en-US', 'en']; }
-            });
-        """)
+        page = browser.new_page()
         
         page.goto(match_url, timeout=60000)
         time.sleep(5)
@@ -52,55 +28,68 @@ def scrape_over_under_data(match_url: str, headless: bool = True):
             except:
                 pass
         
-        # VERIFICĂ CE VEDEM
-        page_content = page.content()
-        print("🔍 VERIFIC CONTENTUL...")
-        
-        if "Betano" in page_content:
-            print("✅ BETANO GĂSIT!")
-        else:
-            print("❌ BETANO NU E ÎN PAGINĂ")
-            
-        if "1." in page_content or "2." in page_content:
-            print("✅ COTE DECIMALE")
-        else:
-            print("❌ COTE AMERICANE")
-        
         # SCROLL
         page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
         time.sleep(2)
         
-        # EXTRAGE ORICE DATE GĂSIM
+        # EXPAND TOATE LINIILE ȘI EXTRAGE TOȚI BOOKMAKERII
+        all_bookmakers = set()
         scraped_data = []
         rows = page.locator('[data-testid="over-under-collapsed-row"]')
-        
-        print(f"📊 LINII GĂSITE: {rows.count()}")
         
         for i in range(rows.count()):
             try:
                 row = rows.nth(i)
-                line_text = row.locator('[data-testid="over-under-collapsed-option-box"]').inner_text()
-                over_odds = row.locator('[data-testid="odd-container-default"]:nth-child(1) p').inner_text()
-                under_odds = row.locator('[data-testid="odd-container-default"]:nth-child(2) p').inner_text()
                 
-                scraped_data.append({
-                    'total': line_text.replace("Over/Under", "").strip(),
-                    'over': over_odds,
-                    'under': under_odds
-                })
+                # TOTAL
+                total_text = row.locator('[data-testid="over-under-collapsed-option-box"]').inner_text()
+                if "Over/Under" in total_text:
+                    total = total_text.replace("Over/Under", "").strip()
+                else:
+                    total = total_text
                 
-                print(f"📝 Linia {i}: {line_text} | Over: {over_odds} | Under: {under_odds}")
-                
-            except Exception as e:
-                print(f"⚠️ Eroare linia {i}: {e}")
+                # CLICK PE SĂGEATĂ SĂ EXPANDEZE
+                expand_arrow = row.locator('.bg-provider-arrow')
+                if expand_arrow.count() > 0:
+                    expand_arrow.click()
+                    time.sleep(1)
+                    
+                    # EXTRAGE TOȚI BOOKMAKERII EXPANDAȚI
+                    expanded_rows = page.locator('[data-testid="over-under-expanded-row"]')
+                    
+                    for j in range(expanded_rows.count()):
+                        try:
+                            expanded_row = expanded_rows.nth(j)
+                            
+                            # BOOKMAKER
+                            bookmaker_name = expanded_row.locator('[data-testid="outrights-expanded-bookmaker-name"]').inner_text()
+                            all_bookmakers.add(bookmaker_name)
+                            
+                            # COTE
+                            over_odds = expanded_row.locator('[data-testid="odd-container"]:nth-child(3) .odds-text').inner_text()
+                            under_odds = expanded_row.locator('[data-testid="odd-container"]:nth-child(4) .odds-text').inner_text()
+                            
+                            scraped_data.append({
+                                'bookmaker': bookmaker_name,
+                                'total': total,
+                                'over': over_odds,
+                                'under': under_odds
+                            })
+                            
+                        except:
+                            continue
+            except:
                 continue
         
         browser.close()
         
+        print(f"📋 BOOKMAKERI GĂSIȚI: {list(all_bookmakers)}")
+        
         if scraped_data:
             return {
                 'url_final': page.url,
-                'numar_linii': len(scraped_data),
+                'numar_bookmakeri': len(scraped_data),
+                'bookmakers_lista': list(all_bookmakers),
                 'date': scraped_data
             }
         return None
