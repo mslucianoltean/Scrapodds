@@ -2,7 +2,26 @@ from playwright.sync_api import sync_playwright
 import pandas as pd
 import time
 import re
+import sys
+import subprocess
 from typing import Optional, List, Dict
+
+def install_playwright():
+    """Instalează Playwright dacă nu este disponibil"""
+    try:
+        from playwright.sync_api import sync_playwright
+        # Testează dacă chromium este instalat
+        with sync_playwright() as p:
+            p.chromium
+        print("Playwright și Chromium sunt deja instalate")
+    except Exception as e:
+        print(f"Playwright necesită instalare: {e}")
+        print("Se instalează Playwright și Chromium...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "playwright"])
+        subprocess.check_call([sys.executable, "-m", "playwright", "install", "chromium"])
+
+# Verifică și instalează la import
+install_playwright()
 
 def scrape_betano_odds(match_url: str, headless: bool = True, progress_callback=None) -> Optional[List[Dict]]:
     """
@@ -26,7 +45,10 @@ def scrape_betano_odds(match_url: str, headless: bool = True, progress_callback=
         with sync_playwright() as p:
             # Lansează browser
             log("🌐 Se lansează browser-ul...")
-            browser = p.chromium.launch(headless=headless)
+            browser = p.chromium.launch(
+                headless=headless,
+                args=['--no-sandbox', '--disable-dev-shm-usage']  # Important pentru servere
+            )
             context = browser.new_context(
                 viewport={'width': 1920, 'height': 1080},
                 user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
@@ -35,7 +57,7 @@ def scrape_betano_odds(match_url: str, headless: bool = True, progress_callback=
             
             # Navigare la pagină
             log("🌐 Se încarcă pagina OddsPortal...")
-            page.goto(match_url, wait_until='domcontentloaded', timeout=30000)
+            page.goto(match_url, wait_until='domcontentloaded', timeout=60000)  # Mărește timeout
             time.sleep(3)
             
             # Click pe tab-ul Over/Under dacă nu e deja activ
