@@ -10,17 +10,17 @@ match_url = st.text_input(
     value="https://www.oddsportal.com/basketball/usa/nba/boston-celtics-los-angeles-clippers-OYHzgRy3/#home-away;1"
 )
 
-if st.button("🚀 Extrage Datele"):
+if st.button("🚀 Extrage Datele Betano"):
     if match_url:
-        with st.spinner("Se extrag datele..."):
+        with st.spinner("Se extrag datele Betano..."):
             install_playwright()
             result = scrape_over_under_data(match_url, headless=True)
         
         if result and result['date']:
-            st.success(f"✅ {result['numar_linii']} linii extrase!")
+            st.success(f"✅ {result['numar_bookmakeri']} linii Betano extrase!")
             df = pd.DataFrame(result['date'])
             st.dataframe(df, width='stretch')
         else:
-            st.error("❌ Nu s-au putut extrage datele")
+            st.error("❌ Nu s-au putut extrage datele Betano")
     else:
         st.warning("⚠️ Introdu un URL")
