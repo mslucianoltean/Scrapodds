@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import os
 from scraper_logic import scrape_betano_odds, validate_url, add_over_under_hash
 
 # Configurare pagină
@@ -39,11 +40,16 @@ st.markdown("---")
 with st.sidebar:
     st.header("⚙️ Setări")
     
-    show_browser = st.checkbox(
-        "Arată browser",
-        value=False,
-        help="Pornește browser-ul vizibil (util pentru debugging)"
-    )
+    # Ascunde opțiunea "Arată browser" pe servere
+    if not os.environ.get('STREAMLIT_SHARED_MODE'):
+        show_browser = st.checkbox(
+            "Arată browser",
+            value=False,
+            help="Pornește browser-ul vizibil (util pentru debugging)"
+        )
+    else:
+        show_browser = False
+        st.info("🔧 Mod headless activat (mediu server)")
     
     auto_fix_url = st.checkbox(
         "Auto-fix URL",
@@ -114,11 +120,11 @@ if scrape_button:
         def update_progress(msg):
             progress_placeholder.info(msg)
         
-        # Rulează scraper-ul
+        # Rulează scraper-ul cu headless forțat pe server
         with st.spinner("⏳ Scraping în progres... (poate dura până la 30 de secunde)"):
             results = scrape_betano_odds(
                 match_url,
-                headless=not show_browser,
+                headless=not show_browser,  # Pe server va fi mereu headless=True
                 progress_callback=update_progress
             )
         
@@ -205,73 +211,10 @@ if scrape_button:
             
             **Soluții:**
             1. Verifică manual în browser că Betano apare în listă
-            2. Bifează "Arată browser" pentru debugging
-            3. Încearcă alt meci
+            2. Încearcă alt meci
+            3. Contactează dezvoltatorul pentru actualizare
             """)
 
 # Footer
-st.markdown("---")
-
-with st.expander("ℹ️ Informații și Help"):
-    tab1, tab2, tab3 = st.tabs(["Cum funcționează", "Instalare", "Troubleshooting"])
-    
-    with tab1:
-        st.markdown("""
-        ### 🔄 Procesul de scraping:
-        
-        1. **Browser automat** - Deschide pagina în Chromium
-        2. **Navighează** - Merge la tab-ul Over/Under
-        3. **Găsește Betano** - Caută rândul bookmaker-ului
-        4. **Extrage Closing** - Citește cotele vizibile
-        5. **Click & Extract Opening** - Deschide popup-ul pentru opening odds
-        6. **Returnează datele** - Structurate și formatate
-        """)
-    
-    with tab2:
-        st.markdown("""
-        ### 📦 Instalare locală:
-        
-        ```bash
-        pip install streamlit playwright pandas
-        playwright install chromium
-        ```
-        
-        ### ☁️ Deploy pe Streamlit Cloud:
-        
-        **requirements.txt:**
-        ```
-        streamlit
-        playwright==1.56.0
-        pandas
-        ```
-        
-        **packages.txt:**
-        ```
-        chromium
-        chromium-chromedriver
-        ```
-        """)
-    
-    with tab3:
-        st.markdown("""
-        ### 🔧 Probleme comune:
-        
-        **"Nu găsește rândul Betano"**
-        - Verifică că Betano chiar apare în listă pe site
-        - Încearcă cu "Arată browser" activ
-        
-        **"Timeout / Pagina nu se încarcă"**
-        - Conexiune lentă - măre timeout-ul în cod
-        - OddsPortal blochează - schimbă User-Agent
-        
-        **"Nu extrage opening odds"**
-        - Popup-ul are structură diferită
-        - Verifică în DevTools cum arată popup-ul
-        
-        **Pe Streamlit Cloud nu funcționează**
-        - Verifică că ai `packages.txt` cu chromium
-        - Restart app după deploy
-        """)
-
 st.markdown("---")
 st.caption("Made with ❤️ using Streamlit & Playwright | © 2024")
