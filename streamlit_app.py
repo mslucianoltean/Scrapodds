@@ -4,65 +4,65 @@ import time
 import sys
 import subprocess
 import os
-from scraper_logic import extract_all_over_under_lines, install_playwright
+from scraper_logic import test_sageti_si_betano, install_playwright
 
 # Configurare pagină Streamlit
 st.set_page_config(
-    page_title="DEBUG - Toate Liniile Over/Under",
-    page_icon="🔍",
+    page_title="TEST - Săgeți și Betano",
+    page_icon="🔍", 
     layout="wide"
 )
 
-st.title("🔍 DEBUG - Toate Liniile Over/Under")
-st.write("Testează derularea pentru a încărca TOATE liniile")
+st.title("🔍 TEST - Săgeți și Căutare Betano")
+st.write("Verifică dacă săgețile funcționează și dacă găsește Betano în liniile deschise")
 
 # Forțează headless
 HEADLESS = True
 
-# Input URL (cu home-away)
+# Input URL
 match_url = st.text_input(
     "🔗 URL cu Home/Away",
     value="https://www.oddsportal.com/basketball/usa/nba/boston-celtics-los-angeles-clippers-OYHzgRy3/#home-away;1"
 )
 
 # Buton de test
-if st.button("🚀 Extrage TOATE Liniile (cu derulare)"):
+if st.button("🚀 Testează Săgeți și Betano"):
     if match_url:
-        # Instalează Playwright
         with st.spinner("Se instalează Playwright..."):
             install_playwright()
         
-        # Rulează testul
-        with st.spinner("Se derulează și se extrag toate liniile... (poate dura 30 de secunde)"):
-            results = extract_all_over_under_lines(match_url, headless=HEADLESS)
+        with st.spinner("Se testează săgețile și căutarea Betano... (poate dura 30 de secunde)"):
+            results = test_sageti_si_betano(match_url, headless=HEADLESS)
         
         if results:
-            st.success(f"✅ SUCCES! {len(results)} linii găsite")
+            st.success(f"✅ TEST COMPLET! {len(results)} linii testate")
             
-            # Afișează toate liniile
-            st.subheader(f"📋 Toate cele {len(results)} linii găsite:")
+            # Afișează rezultatele
+            st.subheader("📊 Rezultate Test:")
             
-            # Creează DataFrame pentru afișare mai ordonată
             df = pd.DataFrame(results)
             st.dataframe(df, use_container_width=True, hide_index=True)
             
-            # Afișează și primele/ultimele linii pentru verificare
-            col1, col2 = st.columns(2)
-            with col1:
-                st.write("**Primele 5 linii:**")
-                for i in range(min(5, len(results))):
-                    st.write(f"{i+1}. {results[i]['line']}")
+            # Statistici
+            betano_gasit = sum(1 for r in results if 'DA' in str(r['betano']))
+            st.info(f"**Betano găsit în:** {betano_gasit} din {len(results)} linii testate")
             
-            with col2:
-                st.write("**Ultimele 5 linii:**")
-                for i in range(max(0, len(results)-5), len(results)):
-                    st.write(f"{i+1}. {results[i]['line']}")
-            
+            if betano_gasit > 0:
+                st.success("🎉 Betano a fost găsit! Putem continua cu extracția completă.")
+            else:
+                st.error("❌ Betano nu a fost găsit. Trebuie să ajustăm selectori.")
+                
         else:
-            st.error("❌ EȘEC - Nu s-au găsit linii")
+            st.error("❌ TEST EȘUAT")
             
     else:
         st.warning("⚠️ Introdu un URL")
 
 st.write("---")
-st.write("**Îmbunătățire:** Acum codul derulează pentru a încărca toate liniile (lazy loading)")
+st.write("""
+**Ce testează acest cod:**
+1. Dă click pe săgețile primelor 3 linii
+2. Caută Betano în liniile deschise  
+3. Încearcă să extragă cotele de la Betano
+4. Afișează rezultatele pentru fiecare linie
+""")
