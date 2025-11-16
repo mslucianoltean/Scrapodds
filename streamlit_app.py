@@ -23,6 +23,9 @@ st.markdown("""
         color: #666;
         margin-bottom: 2rem;
     }
+    .stButton button {
+        width: 100%;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -112,7 +115,7 @@ if scrape_button:
             progress_placeholder.info(msg)
         
         # Rulează scraper-ul
-        with st.spinner("⏳ Scraping în progres..."):
+        with st.spinner("⏳ Scraping în progres... (poate dura până la 30 de secunde)"):
             results = scrape_betano_odds(
                 match_url,
                 headless=not show_browser,
@@ -238,14 +241,14 @@ with st.expander("ℹ️ Informații și Help"):
         **requirements.txt:**
         ```
         streamlit
-        playwright==1.40.0
+        playwright==1.56.0
         pandas
         ```
         
         **packages.txt:**
         ```
         chromium
-        chromium-driver
+        chromium-chromedriver
         ```
         """)
     
