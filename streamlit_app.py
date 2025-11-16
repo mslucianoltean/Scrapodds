@@ -35,15 +35,12 @@ if st.button("🚀 Extrage Cote Closing Betano"):
             results = extract_betano_closing_odds(match_url, headless=HEADLESS)
         
         if results:
-            # Filtrează doar liniile cu cote valide
-            valid_results = [r for r in results if r['over_closing'] != 'N/A']
-            
-            st.success(f"✅ EXTRACȚIE REUȘITĂ! {len(valid_results)} linii cu cote Betano")
+            st.success(f"✅ EXTRACȚIE REUȘITĂ! {len(results)} linii cu cote Betano")
             
             # Afișează rezultatele
             st.subheader("📊 Cote CLOSING Betano")
             
-            df = pd.DataFrame(valid_results)
+            df = pd.DataFrame(results)
             st.dataframe(
                 df.style.format({
                     'over_closing': '{:.2f}',
@@ -58,7 +55,7 @@ if st.button("🚀 Extrage Cote Closing Betano"):
             col1, col2, col3 = st.columns(3)
             
             with col1:
-                st.metric("Total Linii cu Cote", len(valid_results))
+                st.metric("Total Linii cu Cote", len(results))
             
             with col2:
                 avg_over = df['over_closing'].mean()
@@ -79,18 +76,21 @@ if st.button("🚀 Extrage Cote Closing Betano"):
             )
             
         else:
-            st.error("❌ Nu s-au putut extrage datele")
+            st.error("❌ Nu s-au găsit cote Betano pentru nicio linie")
+            st.info("""
+            **Posibile cauze:**
+            - Betano nu oferă cote pentru acest meci
+            - Structura paginii s-a schimbat
+            - Probleme de încărcare
+            """)
             
     else:
         st.warning("⚠️ Introdu un URL")
 
 st.write("---")
 st.write("""
-**Acum extragem:**
-- ✅ Cotele de **CLOSING** de la Betano
-- ✅ Pentru **toate liniile** Over/Under
-- ✅ Cotele corecte (1.14, 5.10 etc.)
-
-**Următorul pas:** 
-După ce avem closing odds, putem să adăugăm și opening odds din popup.
+**Acum extragem corect:**
+- ✅ Rândurile expandate cu `data-testid="over-under-expanded-row"`
+- ✅ Betano prin `data-testid="outrights-expanded-bookmaker-name"`
+- ✅ Cotele de closing cu `.odds-text` (1.14, 5.10 etc.)
 """)
