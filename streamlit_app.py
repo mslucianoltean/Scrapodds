@@ -19,7 +19,7 @@ if st.button("🚀 Extrage Datele"):
         if result and result['date']:
             st.success(f"✅ {result['numar_linii']} linii extrase!")
             df = pd.DataFrame(result['date'])
-            st.dataframe(df, use_container_width=True)
+            st.dataframe(df, width='stretch')
         else:
             st.error("❌ Nu s-au putut extrage datele")
     else:
