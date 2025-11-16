@@ -14,7 +14,14 @@ def install_playwright():
 def scrape_over_under_data(match_url: str, headless: bool = True):
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=headless)
-        page = browser.new_page()
+        
+        context = browser.new_context(
+            viewport={'width': 1920, 'height': 1080},
+            user_agent='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            locale='en-GB'
+        )
+        
+        page = context.new_page()
         
         page.goto(match_url, timeout=60000)
         time.sleep(3)
