@@ -90,11 +90,12 @@ def extract_betano_closing_odds(match_url: str, headless: bool = True):
                     # Dă click pe săgeată
                     arrow = line.locator('.bg-provider-arrow').first
                     if arrow.is_visible():
+                        print("   ✅ Săgeată găsită - se dă click...")
                         arrow.click()
                         time.sleep(3)
                         
-                        # Caută Betano și cotele de CLOSING
-                        betano_odds = extract_betano_closing_from_expanded(page)
+                        # Caută rândul Betano în rândurile expandate
+                        betano_odds = find_betano_odds_in_expanded_rows(page)
                         
                         if betano_odds:
                             print(f"   ✅ Betano - Over: {betano_odds['over']}, Under: {betano_odds['under']}")
@@ -104,7 +105,7 @@ def extract_betano_closing_odds(match_url: str, headless: bool = True):
                                 'under_closing': betano_odds['under']
                             })
                         else:
-                            print(f"   ❌ Nu s-au găsit cote Betano")
+                            print(f"   ❌ Betano negăsit în linia deschisă")
                             results.append({
                                 'line': line_text,
                                 'over_closing': 'N/A',
@@ -133,8 +134,10 @@ def extract_betano_closing_odds(match_url: str, headless: bool = True):
             
             browser.close()
             
-            print(f"\n🎯 EXTRACȚIE COMPLETĂ: {len([r for r in results if r['over_closing'] != 'N/A'])} linii cu cote Betano")
-            return results
+            # Numără câte linii au cote valide
+            valid_results = [r for r in results if r['over_closing'] != 'N/A']
+            print(f"\n🎯 EXTRACȚIE COMPLETĂ: {len(valid_results)} linii cu cote Betano")
+            return valid_results
                 
     except Exception as e:
         print(f"❌ Eroare critică: {str(e)}")
@@ -142,45 +145,49 @@ def extract_betano_closing_odds(match_url: str, headless: bool = True):
         print(f"🔍 Detalii eroare: {traceback.format_exc()}")
         return None
 
-def extract_betano_closing_from_expanded(page):
+def find_betano_odds_in_expanded_rows(page):
     """
-    Extrage cotele de CLOSING de la Betano din linia deschisă
+    Caută Betano în rândurile expandate și extrage cotele
     """
     try:
-        # Găsește rândul Betano
-        betano_row = page.locator('[data-testid="outrights-expanded-bookmaker-name"]:has-text("Betano.ro")').first
+        # Găsește toate rândurile expandate
+        expanded_rows = page.locator('[data-testid="over-under-expanded-row"]')
         
-        if betano_row.is_visible():
-            # Navighează la containerul părinte care conține cotele
-            betano_container = betano_row.locator('xpath=./ancestor::div[contains(@class, "flex-row")]').first
+        for i in range(expanded_rows.count()):
+            row = expanded_rows.nth(i)
             
-            if betano_container.is_visible():
-                # Extrage cotele de closing folosind selectorul corect
-                odds_containers = betano_container.locator('[data-testid="odd-container"]')
-                
-                if odds_containers.count() >= 2:
-                    # Over closing - primul container
-                    over_container = odds_containers.nth(0)
-                    over_text = over_container.locator('.odds-text').first.inner_text().strip()
+            # Verifică dacă acest rând conține Betano
+            betano_name = row.locator('[data-testid="outrights-expanded-bookmaker-name"]')
+            if betano_name.count() > 0:
+                bookmaker_text = betano_name.first.inner_text().strip()
+                if 'Betano' in bookmaker_text:
+                    print(f"   ✅ Betano găsit în rândul expandat {i+1}")
                     
-                    # Under closing - al doilea container  
-                    under_container = odds_containers.nth(1)
-                    under_text = under_container.locator('.odds-text').first.inner_text().strip()
+                    # Extrage cotele din acest rând
+                    odds_containers = row.locator('[data-testid="odd-container"]')
                     
-                    try:
-                        over_odds = float(over_text)
-                        under_odds = float(under_text)
+                    if odds_containers.count() >= 2:
+                        # Over closing - primul container
+                        over_text = odds_containers.nth(0).locator('.odds-text').first.inner_text().strip()
                         
-                        return {
-                            'over': over_odds,
-                            'under': under_odds
-                        }
-                    except ValueError:
-                        print(f"⚠️ Cote invalide: Over='{over_text}', Under='{under_text}'")
-                        return None
+                        # Under closing - al doilea container  
+                        under_text = odds_containers.nth(1).locator('.odds-text').first.inner_text().strip()
+                        
+                        try:
+                            over_odds = float(over_text)
+                            under_odds = float(under_text)
+                            
+                            return {
+                                'over': over_odds,
+                                'under': under_odds
+                            }
+                        except ValueError:
+                            print(f"   ⚠️ Cote invalide: Over='{over_text}', Under='{under_text}'")
+                            return None
         
+        print("   ❌ Betano nu a fost găsit în niciun rând expandat")
         return None
         
     except Exception as e:
-        print(f"⚠️ Eroare extragere cote closing: {e}")
+        print(f"⚠️ Eroare căutare Betano: {e}")
         return None
