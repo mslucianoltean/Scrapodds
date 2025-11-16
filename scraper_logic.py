@@ -27,7 +27,7 @@ def install_playwright():
 
 def extract_all_over_under_lines(match_url: str, headless: bool = True):
     """
-    Extrage toate liniile Over/Under pornind de la home/away
+    Extrage toate liniile Over/Under cu derulare pentru lazy loading
     """
     print("🌐 Se lansează browser-ul...")
     
@@ -46,14 +46,14 @@ def extract_all_over_under_lines(match_url: str, headless: bool = True):
             )
             
             context = browser.new_context(
-                viewport={'width': 1920, 'height': 1080},
+                viewport={'width': 1920, 'height': 2000},  # Mai înalt pentru derulare
                 user_agent='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 java_script_enabled=True
             )
             
             page = context.new_page()
             
-            # PASUL 1: Navigare la home/away (care știm că funcționează)
+            # PASUL 1: Navigare la home/away
             print(f"🌐 Se încarcă pagina inițială: {match_url}")
             page.goto(match_url, wait_until='domcontentloaded', timeout=60000)
             time.sleep(3)
@@ -61,10 +61,9 @@ def extract_all_over_under_lines(match_url: str, headless: bool = True):
             print(f"📄 Pagina încărcată: {page.title()}")
             print(f"🔗 URL curent: {page.url}")
             
-            # PASUL 2: Dă click pe Over/Under (așa cum am făcut în test)
+            # PASUL 2: Dă click pe Over/Under
             print("🖱️ Se dă click pe tab-ul Over/Under...")
             
-            # Folosim același selector care a funcționat
             inactive_over_under = page.locator('[data-testid="navigation-inactive-tab"]:has-text("Over/Under")')
             
             if inactive_over_under.count() > 0 and inactive_over_under.first.is_visible():
@@ -75,30 +74,44 @@ def extract_all_over_under_lines(match_url: str, headless: bool = True):
                 print("⏳ Se așteaptă încărcarea liniilor Over/Under...")
                 time.sleep(5)
                 
-                # Verifică noul URL
-                new_url = page.url
-                print(f"🔄 URL nou: {new_url}")
+                # PASUL 3: DERULEAZĂ pentru a încărca toate liniile (lazy loading)
+                print("🔄 Se derulează pentru a încărca toate liniile...")
                 
-                # PASUL 3: Acum că suntem pe Over/Under, extragem liniile
-                print("🔍 Se caută liniile cu săgeți...")
+                # Derulează de mai multe ori pentru a încărca toate liniile
+                for scroll_attempt in range(5):
+                    # Derulează până jos
+                    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                    time.sleep(2)
+                    
+                    # Verifică câte linii sunt acum
+                    current_lines = page.locator('[data-testid="over-under-collapsed-row"]')
+                    current_count = current_lines.count()
+                    print(f"📊 După derulare {scroll_attempt + 1}: {current_count} linii")
+                    
+                    # Dacă nu se mai încarcă linii noi, oprește-te
+                    if scroll_attempt > 0:
+                        previous_count = page.locator('[data-testid="over-under-collapsed-row"]').count()
+                        if current_count == previous_count:
+                            print("✅ Nu se mai încarcă linii noi - derulare oprită")
+                            break
                 
-                # Așteaptă să se încarce liniile
-                page.wait_for_selector('[data-testid="over-under-collapsed-row"]', timeout=10000)
+                # Așteaptă un pic după derulare
+                time.sleep(3)
                 
-                # Găsește toate liniile
+                # PASUL 4: Extrage toate liniile
                 all_lines = page.locator('[data-testid="over-under-collapsed-row"]')
                 line_count = all_lines.count()
                 
-                print(f"📊 Număr total de linii găsite: {line_count}")
+                print(f"🎯 TOTAL linii găsite: {line_count}")
                 
-                # Extrage doar informațiile de bază pentru început (fără să dăm click pe săgeți)
+                # Extrage toate liniile
                 results = []
                 
-                for i in range(min(line_count, 5)):  # Testează doar primele 5 linii
+                for i in range(line_count):
                     try:
                         line = all_lines.nth(i)
                         
-                        # Extrage textul liniei (handicap-ul)
+                        # Extrage textul liniei
                         line_text = line.locator('[data-testid="over-under-collapsed-option-box"]').first.inner_text()
                         print(f"📝 Linia {i+1}: {line_text}")
                         
@@ -115,10 +128,10 @@ def extract_all_over_under_lines(match_url: str, headless: bool = True):
                 browser.close()
                 
                 if results:
-                    print(f"🎉 DEBUG - {len(results)} linii găsite!")
+                    print(f"🎉 EXTRACȚIE COMPLETĂ! {len(results)} linii găsite")
                     return results
                 else:
-                    print("❌ DEBUG - Nu s-au găsit linii")
+                    print("❌ Nu s-au găsit linii")
                     return None
             else:
                 print("❌ Nu s-a putut da click pe Over/Under")
