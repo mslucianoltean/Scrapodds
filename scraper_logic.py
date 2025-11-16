@@ -59,11 +59,11 @@ def extract_betano_complete(match_url: str, headless: bool = True):
             if inactive_over_under.count() > 0:
                 inactive_over_under.first.click()
                 print("   ✅ Click Over/Under!")
-                time.sleep(5)  # Așteaptă încărcarea liniilor
+                time.sleep(5)
                 print(f"   🔗 URL după Over/Under: {page.url}")
                 
-                # 3. DERULEAZĂ PENTRU TOATE LINIILE
-                print("📍 3. Derulare pentru linii...")
+                # 3. DERULEAZĂ
+                print("📍 3. Derulare...")
                 page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                 time.sleep(3)
                 
@@ -86,34 +86,29 @@ def extract_betano_complete(match_url: str, headless: bool = True):
                 arrow = first_line.locator('.bg-provider-arrow').first
                 if arrow.is_visible():
                     arrow.click()
-                    print("   ✅ Click săgeată! Se așteaptă expandare...")
+                    print("   ✅ Click săgeată!")
                     time.sleep(3)
                     
                     # 6. CAUTĂ BETANO ÎN CONTAINERUL EXPANDAT
-                    print("📍 5. Căutare Betano în container expandat...")
+                    print("📍 5. Căutare Betano...")
                     expanded_rows = page.locator('[data-testid="over-under-expanded-row"]')
                     expanded_count = expanded_rows.count()
                     print(f"   📊 Rânduri expandate: {expanded_count}")
                     
                     if expanded_count > 0:
-                        # Caută Betano în fiecare rând expandat
                         for i in range(expanded_count):
                             row = expanded_rows.nth(i)
-                            
-                            # CAUTĂ LOGO BETANO
                             betano_logo = row.locator('img[alt="Betano.ro"]').first
                             if betano_logo.count() > 0 and betano_logo.is_visible():
-                                print("   ✅ BETANO GĂSIT! Se extrag cotele...")
+                                print("   ✅ BETANO GĂSIT!")
                                 
-                                # EXTRAge COTELE
                                 odds_containers = row.locator('[data-testid="odd-container"]')
                                 if odds_containers.count() >= 2:
                                     over_text = odds_containers.nth(0).locator('.odds-text').first.inner_text().strip()
                                     under_text = odds_containers.nth(1).locator('.odds-text').first.inner_text().strip()
                                     
-                                    print(f"   🎯 Cote Betano: Over={over_text}, Under={under_text}")
+                                    print(f"   🎯 Cote: Over={over_text}, Under={under_text}")
                                     
-                                    # Închide linia
                                     arrow.click()
                                     time.sleep(1)
                                     
@@ -124,11 +119,10 @@ def extract_betano_complete(match_url: str, headless: bool = True):
                                         'under_closing': float(under_text)
                                     }]
                         
-                        print("   ❌ Betano negăsit în rândurile expandate")
+                        print("   ❌ Betano negăsit")
                     else:
                         print("   ❌ Nicio linie expandată")
                     
-                    # Închide linia
                     arrow.click()
                     time.sleep(1)
                 else:
@@ -141,6 +135,4 @@ def extract_betano_complete(match_url: str, headless: bool = True):
                 
     except Exception as e:
         print(f"❌ Eroare: {str(e)}")
-        import traceback
-        print(f"🔍 Detalii: {traceback.format_exc()}")
         return None
