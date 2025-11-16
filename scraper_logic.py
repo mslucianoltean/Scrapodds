@@ -1,66 +1,121 @@
 from playwright.sync_api import sync_playwright
 import time
+import sys
+import subprocess
+import os
 
-def debug_container_content(match_url: str, headless: bool = True):
+def install_playwright():
+    """Instalează Playwright dacă nu este disponibil"""
+    try:
+        from playwright.sync_api import sync_playwright
+        print("✓ Playwright este instalat")
+        
+        try:
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True, timeout=15000)
+                browser.close()
+            print("✓ Chromium funcționează corect")
+        except Exception as e:
+            print(f"⚠️ Problema cu Chromium: {e}")
+            print("📥 Se reinstalează browserele...")
+            subprocess.check_call([sys.executable, "-m", "playwright", "install", "chromium"])
+            
+    except ImportError:
+        print("❌ Playwright nu este instalat. Se instalează...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "playwright"])
+        subprocess.check_call([sys.executable, "-m", "playwright", "install", "chromium"])
+
+def click_over_under_and_get_url(match_url: str, headless: bool = True):
     """
-    DEBUG: Afișează EXACT ce este în containerul expandat
+    Dă click pe tab-ul Over/Under și returnează noul URL
     """
-    print("🐛 DEBUG - Se afișează conținutul containerului expandat...")
+    print("🌐 Se lansează browser-ul...")
     
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=headless, args=['--no-sandbox'])
-            context = browser.new_context(viewport={'width': 1920, 'height': 2000})
+            browser = p.chromium.launch(
+                headless=headless,
+                args=[
+                    '--no-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-gpu',
+                    '--single-process',
+                    '--disable-web-security',
+                    '--disable-features=VizDisplayCompositor',
+                    '--disable-background-timer-throttling',
+                    '--disable-backgrounding-occluded-windows',
+                    '--disable-renderer-backgrounding'
+                ],
+                timeout=30000
+            )
+            
+            context = browser.new_context(
+                viewport={'width': 1920, 'height': 1080},
+                user_agent='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                java_script_enabled=True
+            )
+            
             page = context.new_page()
             
-            # Procesul complet
-            page.goto(match_url, wait_until='domcontentloaded')
-            time.sleep(3)
+            # Navigare la pagina initiala
+            print(f"🌐 Se încarcă pagina: {match_url}")
+            page.goto(match_url, wait_until='domcontentloaded', timeout=60000)
+            time.sleep(5)
             
-            # Click Over/Under
+            # Afiseaza URL-ul initial
+            initial_url = page.url
+            print(f"📄 URL initial: {initial_url}")
+            print(f"📄 Titlul paginii: {page.title()}")
+            
+            # VERIFICĂ dacă suntem deja pe Over/Under
+            if "#over-under" in initial_url.lower():
+                print("✅ DEJA suntem pe pagina Over/Under!")
+                browser.close()
+                return initial_url
+            
+            print("🖱️ Se caută tab-ul Over/Under...")
+            
+            # Așteaptă să se încarce tab-urile
+            page.wait_for_selector('ul.visible-links.odds-tabs', timeout=10000)
+            
+            # Caută tab-ul Over/Under INACTIV
             inactive_over_under = page.locator('[data-testid="navigation-inactive-tab"]:has-text("Over/Under")')
-            if inactive_over_under.count() > 0:
+            
+            if inactive_over_under.count() > 0 and inactive_over_under.first.is_visible():
+                print("✅ Over/Under găsit (inactiv) - se dă click...")
                 inactive_over_under.first.click()
+                print("✅ Click realizat!")
+                
+                # Așteaptă 5 secunde pentru încărcare
+                print("⏳ Aștept 5 secunde pentru încărcare...")
                 time.sleep(5)
                 
-            # Derulează
-            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            time.sleep(3)
-            
-            # Click pe prima săgeată
-            first_line = page.locator('[data-testid="over-under-collapsed-row"]').first
-            arrow = first_line.locator('.bg-provider-arrow').first
-            if arrow.is_visible():
-                arrow.click()
-                time.sleep(3)
+                # Capturează noul URL
+                new_url = page.url
+                print(f"🔄 URL nou: {new_url}")
                 
-                # DEBUG: Afișează TOT din containerul expandat
-                expanded_rows = page.locator('[data-testid="over-under-expanded-row"]')
-                print(f"📊 RÂNDURI EXPANDATE: {expanded_rows.count()}")
+                browser.close()
+                return new_url
+            else:
+                print("❌ Over/Under nu a fost găsit ca inactiv")
                 
-                for i in range(expanded_rows.count()):
-                    row = expanded_rows.nth(i)
-                    print(f"\n🔍 RÂNDUL {i+1}:")
-                    print("HTML COMPLET:")
-                    print(row.inner_html()[:1000])  # Primele 1000 caractere
-                    
-                    # Verifică ce link-uri sunt
-                    all_links = row.locator('a')
-                    print(f"🔗 LINK-URI: {all_links.count()}")
-                    for j in range(all_links.count()):
-                        link = all_links.nth(j)
-                        href = link.get_attribute('href')
-                        print(f"   Link {j+1}: {href}")
-                    
-                    # Verifică ce containere de cote sunt
-                    odds_containers = row.locator('[data-testid="odd-container"]')
-                    print(f"💰 CONTAINERE COTE: {odds_containers.count()}")
-                    
-                arrow.click()
+                # Debug: afișează toate tab-urile
+                all_tabs = page.locator('[data-testid^="navigation-"]')
+                tab_count = all_tabs.count()
+                print(f"🔍 Număr total de tab-uri: {tab_count}")
                 
-            browser.close()
-            return {"status": "DEBUG_COMPLETAT"}
+                for i in range(tab_count):
+                    tab = all_tabs.nth(i)
+                    if tab.is_visible():
+                        tab_text = tab.inner_text()
+                        is_active = "active-odds" in tab.get_attribute('class') or ""
+                        print(f"Tab {i+1}: '{tab_text}' - activ: {is_active}")
+                
+                browser.close()
+                return None
                 
     except Exception as e:
-        print(f"❌ Eroare: {str(e)}")
-        return {"error": str(e)}
+        print(f"❌ Eroare critică: {str(e)}")
+        import traceback
+        print(f"🔍 Detalii eroare: {traceback.format_exc()}")
+        return None
