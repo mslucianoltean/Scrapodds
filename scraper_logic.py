@@ -1,26 +1,60 @@
-import streamlit as st
-import pandas as pd
-from scraper_logic import scrape_over_under_data, install_playwright
+from playwright.sync_api import sync_playwright
+import time
+import sys
+import subprocess
 
-st.set_page_config(page_title="Over/Under Scraper", page_icon="🔍")
-st.title("🔍 Over/Under Scraper")
+def install_playwright():
+    try:
+        from playwright.sync_api import sync_playwright
+        subprocess.check_call([sys.executable, "-m", "playwright", "install", "chromium"])
+    except ImportError:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "playwright"])
+        subprocess.check_call([sys.executable, "-m", "playwright", "install", "chromium"])
 
-match_url = st.text_input(
-    "🔗 URL meci",
-    value="https://www.oddsportal.com/basketball/usa/nba/boston-celtics-los-angeles-clippers-OYHzgRy3/#home-away;1"
-)
-
-if st.button("🚀 Extrage Datele"):
-    if match_url:
-        with st.spinner("Se extrag datele..."):
-            install_playwright()
-            result = scrape_over_under_data(match_url, headless=True)
+def scrape_over_under_data(match_url: str, headless: bool = True):
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=headless)
+        page = browser.new_page()
         
-        if result and result['date']:
-            st.success(f"✅ {result['numar_linii']} linii extrase!")
-            df = pd.DataFrame(result['date'])
-            st.dataframe(df, width='stretch')
-        else:
-            st.error("❌ Nu s-au putut extrage datele")
-    else:
-        st.warning("⚠️ Introdu un URL")
+        page.goto(match_url, timeout=60000)
+        time.sleep(5)
+        
+        if "#over-under" not in page.url:
+            try:
+                over_under_tab = page.locator('[data-testid="navigation-inactive-tab"]:has-text("Over/Under")')
+                if over_under_tab.count() > 0:
+                    over_under_tab.first.click()
+                    time.sleep(5)
+            except:
+                pass
+        
+        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+        time.sleep(2)
+        
+        scraped_data = []
+        rows = page.locator('[data-testid="over-under-collapsed-row"]')
+        
+        for i in range(rows.count()):
+            try:
+                row = rows.nth(i)
+                line_text = row.locator('[data-testid="over-under-collapsed-option-box"]').inner_text()
+                over_odds = row.locator('[data-testid="odd-container-default"]:nth-child(1) p').inner_text()
+                under_odds = row.locator('[data-testid="odd-container-default"]:nth-child(2) p').inner_text()
+                
+                scraped_data.append({
+                    'total': line_text,
+                    'over': over_odds,
+                    'under': under_odds
+                })
+            except:
+                continue
+        
+        browser.close()
+        
+        if scraped_data:
+            return {
+                'url_final': page.url,
+                'numar_linii': len(scraped_data),
+                'date': scraped_data
+            }
+        return None
