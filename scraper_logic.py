@@ -14,7 +14,14 @@ def install_playwright():
 def scrape_over_under_data(match_url: str, headless: bool = True):
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=headless)
-        page = browser.new_page()
+        
+        context = browser.new_context(
+            viewport={'width': 1920, 'height': 1080},
+            user_agent='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            locale='en-GB'
+        )
+        
+        page = context.new_page()
         
         page.goto(match_url, timeout=60000)
         time.sleep(3)
@@ -35,12 +42,22 @@ def scrape_over_under_data(match_url: str, headless: bool = True):
         for i in range(rows.count()):
             try:
                 row = rows.nth(i)
-                line_text = row.locator('[data-testid="over-under-collapsed-option-box"]').inner_text()
+                
+                handicap_element = row.locator('[data-testid="over-under-collapsed-option-box"] p')
+                handicap_text = handicap_element.inner_text()
+                
+                if "Over/Under" in handicap_text:
+                    total = handicap_text.replace("Over/Under", "").strip()
+                elif "O/U" in handicap_text: 
+                    total = handicap_text.replace("O/U", "").strip()
+                else:
+                    total = handicap_text.strip()
+                
                 over_odds = row.locator('[data-testid="odd-container-default"]:nth-child(1) p').inner_text()
                 under_odds = row.locator('[data-testid="odd-container-default"]:nth-child(2) p').inner_text()
                 
                 scraped_data.append({
-                    'linia': line_text,
+                    'total': total,
                     'over': over_odds,
                     'under': under_odds
                 })
