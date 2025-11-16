@@ -10,16 +10,33 @@ match_url = st.text_input(
     value="https://www.oddsportal.com/basketball/usa/nba/boston-celtics-los-angeles-clippers-OYHzgRy3/#home-away;1"
 )
 
-if st.button("🚀 Extrage Datele"):
+if st.button("🚀 Extrage Toți Bookmakerii"):
     if match_url:
         with st.spinner("Se extrag datele..."):
             install_playwright()
             result = scrape_over_under_data(match_url, headless=True)
         
         if result and result['date']:
-            st.success(f"✅ {result['numar_linii']} linii extrase!")
+            st.success(f"✅ {result['numar_bookmakeri']} intrări extrase!")
+            
+            # AFIȘEAZĂ LISTA BOOKMAKERILOR
+            st.subheader("📋 Bookmakeri găsiți:")
+            st.write(result['bookmakers_lista'])
+            
+            # AFIȘEAZĂ TOATE DATELE
             df = pd.DataFrame(result['date'])
             st.dataframe(df, width='stretch')
+            
+            # FILTRARE DUPĂ BOOKMAKER
+            selected_bookmaker = st.selectbox(
+                "Alege un bookmaker:",
+                options=["Toți"] + result['bookmakers_lista']
+            )
+            
+            if selected_bookmaker != "Toți":
+                filtered_df = df[df['bookmaker'] == selected_bookmaker]
+                st.subheader(f"📊 Date pentru {selected_bookmaker}:")
+                st.dataframe(filtered_df, width='stretch')
         else:
             st.error("❌ Nu s-au putut extrage datele")
     else:
