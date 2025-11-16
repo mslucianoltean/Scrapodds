@@ -25,11 +25,11 @@ def install_playwright():
         subprocess.check_call([sys.executable, "-m", "pip", "install", "playwright"])
         subprocess.check_call([sys.executable, "-m", "playwright", "install", "chromium"])
 
-def test_sageti_si_betano(match_url: str, headless: bool = True):
+def extract_betano_closing_odds(match_url: str, headless: bool = True):
     """
-    TEST: Verifică dacă săgețile funcționează și găsește Betano
+    Extrage cotele de CLOSING de la Betano pentru toate liniile
     """
-    print("🌐 TEST - Se lansează browser-ul...")
+    print("🌐 Se extrag cotele de CLOSING de la Betano...")
     
     try:
         with sync_playwright() as p:
@@ -53,7 +53,7 @@ def test_sageti_si_betano(match_url: str, headless: bool = True):
             
             page = context.new_page()
             
-            # Navigare la home/away + click pe Over/Under
+            # Navigare + click pe Over/Under
             print(f"🌐 Se încarcă pagina: {match_url}")
             page.goto(match_url, wait_until='domcontentloaded', timeout=60000)
             time.sleep(3)
@@ -76,85 +76,64 @@ def test_sageti_si_betano(match_url: str, headless: bool = True):
             # Găsește toate liniile
             all_lines = page.locator('[data-testid="over-under-collapsed-row"]')
             line_count = all_lines.count()
-            print(f"📊 Total linii pentru test: {line_count}")
+            print(f"📊 Total linii: {line_count}")
             
             results = []
             
-            # TEST: Primele 3 linii pentru a verifica săgețile și Betano
-            for i in range(min(3, line_count)):
+            # Extrage cotele de closing pentru fiecare linie
+            for i in range(line_count):
                 try:
                     line = all_lines.nth(i)
                     line_text = line.locator('[data-testid="over-under-collapsed-option-box"]').first.inner_text()
-                    print(f"\n🔍 TEST Linia {i+1}: {line_text}")
+                    print(f"\n🔍 Linia {i+1}: {line_text}")
                     
-                    # Găsește săgeata
+                    # Dă click pe săgeată
                     arrow = line.locator('.bg-provider-arrow').first
                     if arrow.is_visible():
-                        print(f"   ✅ Săgeată găsită - se dă click...")
                         arrow.click()
-                        time.sleep(3)  # Așteaptă să se deschidă
+                        time.sleep(3)
                         
-                        # Acum că linia este deschisă, caută Betano
-                        betano_found = find_betano_in_page(page)
+                        # Caută Betano și cotele de CLOSING
+                        betano_odds = extract_betano_closing_from_expanded(page)
                         
-                        if betano_found:
-                            print(f"   ✅ BETANO GĂSIT! - {betano_found}")
-                            
-                            # Încearcă să extragi cotele
-                            odds = extract_odds_from_betano(page)
-                            if odds:
-                                print(f"   ✅ Cote găsite: Over={odds['over']}, Under={odds['under']}")
-                                results.append({
-                                    'line': line_text,
-                                    'betano': 'DA',
-                                    'over': odds['over'],
-                                    'under': odds['under']
-                                })
-                            else:
-                                print(f"   ⚠️ Betano găsit dar cotele nu s-au putut extrage")
-                                results.append({
-                                    'line': line_text,
-                                    'betano': 'DA (fără cote)',
-                                    'over': 'N/A',
-                                    'under': 'N/A'
-                                })
-                        else:
-                            print(f"   ❌ Betano NU a fost găsit")
+                        if betano_odds:
+                            print(f"   ✅ Betano - Over: {betano_odds['over']}, Under: {betano_odds['under']}")
                             results.append({
                                 'line': line_text,
-                                'betano': 'NU',
-                                'over': 'N/A', 
-                                'under': 'N/A'
+                                'over_closing': betano_odds['over'],
+                                'under_closing': betano_odds['under']
+                            })
+                        else:
+                            print(f"   ❌ Nu s-au găsit cote Betano")
+                            results.append({
+                                'line': line_text,
+                                'over_closing': 'N/A',
+                                'under_closing': 'N/A'
                             })
                         
-                        # Închide linia dând click din nou
+                        # Închide linia
                         arrow.click()
                         time.sleep(1)
                     else:
-                        print(f"   ❌ Săgeată NU a fost găsită")
+                        print(f"   ❌ Fără săgeată")
                         results.append({
                             'line': line_text,
-                            'betano': 'NU (fără săgeată)',
-                            'over': 'N/A',
-                            'under': 'N/A'
+                            'over_closing': 'N/A',
+                            'under_closing': 'N/A'
                         })
                         
                 except Exception as e:
-                    print(f"⚠️ Eroare la TEST linia {i+1}: {e}")
+                    print(f"⚠️ Eroare la linia {i+1}: {e}")
                     results.append({
                         'line': f"Linia {i+1} - EROARE",
-                        'betano': f"Eroare: {str(e)}",
-                        'over': 'N/A',
-                        'under': 'N/A'
+                        'over_closing': 'N/A',
+                        'under_closing': 'N/A'
                     })
                     continue
             
             browser.close()
             
-            print(f"\n🎯 REZULTATE TEST:")
-            for result in results:
-                print(f"   {result['line']} -> Betano: {result['betano']}")
-            
+            print(f"\n🎯 EXTRACȚIE COMPLETĂ: {len([r for r in results if r['over_closing'] != 'N/A'])} linii cu cote Betano")
             return results
                 
     except Exception as e:
@@ -163,56 +142,45 @@ def test_sageti_si_betano(match_url: str, headless: bool = True):
         print(f"🔍 Detalii eroare: {traceback.format_exc()}")
         return None
 
-def find_betano_in_page(page):
+def extract_betano_closing_from_expanded(page):
     """
-    Caută Betano în pagina curentă folosind mai multe metode
-    """
-    try:
-        # Metoda 1: După textul "Betano.ro"
-        betano_text = page.locator('text=Betano.ro').first
-        if betano_text.is_visible():
-            return "Găsit prin text"
-        
-        # Metoda 2: După data-testid (dacă există)
-        betano_testid = page.locator('[data-testid*="betano"]').first
-        if betano_testid.count() > 0 and betano_testid.first.is_visible():
-            return "Găsit prin data-testid"
-        
-        # Metoda 3: După class care conține "betano"
-        betano_class = page.locator('[class*="betano"]').first
-        if betano_class.count() > 0 and betano_class.first.is_visible():
-            return "Găsit prin class"
-        
-        # Metoda 4: Verifică HTML-ul pentru Betano
-        page_html = page.content()
-        if 'Betano.ro' in page_html:
-            return "Betano în HTML dar nu vizibil"
-        
-        return "Negăsit"
-        
-    except Exception as e:
-        return f"Eroare căutare: {str(e)}"
-
-def extract_odds_from_betano(page):
-    """
-    Încearcă să extragă cotele de la Betano
+    Extrage cotele de CLOSING de la Betano din linia deschisă
     """
     try:
-        # Caută containerele de cote lângă Betano
-        # Aceasta va trebui ajustată după ce vedem structura exactă
-        odds_containers = page.locator('[data-testid="odd-container"]')
+        # Găsește rândul Betano
+        betano_row = page.locator('[data-testid="outrights-expanded-bookmaker-name"]:has-text("Betano.ro")').first
         
-        if odds_containers.count() >= 2:
-            over_text = odds_containers.nth(0).inner_text().strip()
-            under_text = odds_containers.nth(1).inner_text().strip()
+        if betano_row.is_visible():
+            # Navighează la containerul părinte care conține cotele
+            betano_container = betano_row.locator('xpath=./ancestor::div[contains(@class, "flex-row")]').first
             
-            return {
-                'over': over_text,
-                'under': under_text
-            }
+            if betano_container.is_visible():
+                # Extrage cotele de closing folosind selectorul corect
+                odds_containers = betano_container.locator('[data-testid="odd-container"]')
+                
+                if odds_containers.count() >= 2:
+                    # Over closing - primul container
+                    over_container = odds_containers.nth(0)
+                    over_text = over_container.locator('.odds-text').first.inner_text().strip()
+                    
+                    # Under closing - al doilea container  
+                    under_container = odds_containers.nth(1)
+                    under_text = under_container.locator('.odds-text').first.inner_text().strip()
+                    
+                    try:
+                        over_odds = float(over_text)
+                        under_odds = float(under_text)
+                        
+                        return {
+                            'over': over_odds,
+                            'under': under_odds
+                        }
+                    except ValueError:
+                        print(f"⚠️ Cote invalide: Over='{over_text}', Under='{under_text}'")
+                        return None
         
         return None
         
     except Exception as e:
-        print(f"⚠️ Eroare extragere cote: {e}")
+        print(f"⚠️ Eroare extragere cote closing: {e}")
         return None
