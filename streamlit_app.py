@@ -1,44 +1,29 @@
 import streamlit as st
 import pandas as pd
-import time
-import sys
-import subprocess
-import os
-from scraper_logic import extract_first_bookmaker_odds, install_playwright
+from scraper_logic import extract_betano_odds_by_logo, install_playwright
 
-# Configurare pagină Streamlit
-st.set_page_config(
-    page_title="Extractor Cote Betano", 
-    page_icon="🏀",
-    layout="wide"
-)
+st.set_page_config(page_title="Extractor Betano (Logo)", page_icon="🏀", layout="wide")
 
-st.title("🏀 Extractor Cote Betano (Primul Bookmaker)")
-st.write("Extrage cotele de la PRIMUL bookmaker (Betano) pentru toate liniile Over/Under")
+st.title("🏀 Extractor Cote Betano (Căutare după LOGO)")
+st.write("Acum caută Betano după LOGO-ul său, nu după text")
 
-# Forțează headless
 HEADLESS = True
 
-# Input URL
 match_url = st.text_input(
-    "🔗 URL meci (cu Over/Under)",
-    value="https://www.oddsportal.com/basketball/usa/nba/boston-celtics-los-angeles-clippers-OYHzgRy3/#over-under;1"
+    "🔗 URL meci",
+    value="https://www.oddsportal.com/basketball/usa/nba/boston-celtics-los-angeles-clippers-OYHzgRy3/#home-away;1"
 )
 
-# Buton de extracție
-if st.button("🚀 Extrage Cote Betano"):
+if st.button("🚀 Extrage Cote Betano (LOGO)"):
     if match_url:
         with st.spinner("Se instalează Playwright..."):
             install_playwright()
         
-        with st.spinner("Se extrag toate cotele... (poate dura 1-2 minute)"):
-            results = extract_first_bookmaker_odds(match_url, headless=HEADLESS)
+        with st.spinner("Se caută Betano după LOGO..."):
+            results = extract_betano_odds_by_logo(match_url, headless=HEADLESS)
         
         if results:
-            st.success(f"✅ EXTRACȚIE REUȘITĂ! {len(results)} linii cu cote Betano")
-            
-            # Afișează rezultatele
-            st.subheader("📊 Cote Betano - Closing")
+            st.success(f"✅ BETANO GĂSIT! {len(results)} linii cu cote")
             
             df = pd.DataFrame(results)
             st.dataframe(
@@ -50,22 +35,6 @@ if st.button("🚀 Extrage Cote Betano"):
                 hide_index=True
             )
             
-            # Statistici
-            st.subheader("📈 Statistici")
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                st.metric("Total Linii cu Cote", len(results))
-            
-            with col2:
-                avg_over = df['over_closing'].mean()
-                st.metric("Over Mediu", f"{avg_over:.2f}")
-            
-            with col3:
-                avg_under = df['under_closing'].mean()
-                st.metric("Under Mediu", f"{avg_under:.2f}")
-            
-            # Export
             csv = df.to_csv(index=False)
             st.download_button(
                 "📥 Descarcă CSV",
@@ -74,19 +43,10 @@ if st.button("🚀 Extrage Cote Betano"):
                 "text/csv",
                 use_container_width=True
             )
-            
         else:
-            st.error("❌ Nu s-au găsit cote pentru nicio linie")
-            st.info("Verifică consola pentru detalii de debug")
-            
+            st.error("❌ Betano nu a fost găsit în nicio linie")
     else:
         st.warning("⚠️ Introdu un URL")
 
 st.write("---")
-st.write("""
-**Acum extragem:**
-- ✅ **Întotdeauna primele cote** din primul rând expandat
-- ✅ **Betano este primul** bookmaker în listă
-- ✅ **Cotele corecte** (1.14, 5.10 etc.)
-- ✅ **Pentru toate liniile** Over/Under
-""")
+st.write("**Acum caută:** 🖼️ Logo-ul Betano (`img[alt='Betano.ro']`)")
