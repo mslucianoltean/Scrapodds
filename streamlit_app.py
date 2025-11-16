@@ -15,6 +15,9 @@ st.set_page_config(
 st.title("🔍 Test Navigare Over/Under")
 st.write("Acest app testează dacă Playwright poate da click pe tab-ul Over/Under")
 
+# Forțează headless pe orice mediu server
+HEADLESS = True  # FORȚAT headless
+
 # Input URL
 match_url = st.text_input(
     "🔗 URL meci (fără over-under)",
@@ -25,10 +28,12 @@ match_url = st.text_input(
 if st.button("🚀 Testează Navigarea"):
     if match_url:
         # Instalează Playwright dacă e necesar
-        install_playwright()
+        with st.spinner("Se instalează Playwright..."):
+            install_playwright()
         
-        # Rulează testul
-        result_url = click_over_under_and_get_url(match_url, headless=False)
+        # Rulează testul cu headless FORȚAT
+        with st.spinner("Se navighează la Over/Under... (poate dura 10-15 secunde)"):
+            result_url = click_over_under_and_get_url(match_url, headless=HEADLESS)
         
         if result_url:
             st.success("✅ Navigare reușită!")
@@ -45,6 +50,7 @@ if st.button("🚀 Testează Navigarea"):
                 st.code(result_url)
         else:
             st.error("❌ Navigarea a eșuat")
+            st.info("⚠️ Browser-ul rulează în modul headless (fără interfață vizibilă)")
     else:
         st.warning("⚠️ Introdu un URL")
 
@@ -52,12 +58,12 @@ if st.button("🚀 Testează Navigarea"):
 with st.expander("ℹ️ Cum funcționează"):
     st.markdown("""
     1. App-ul primește un URL OddsPortal fără `#over-under`
-    2. Playwright deschide browser-ul și navighează la pagina
-    3. Dă click pe tab-ul Over/Under folosind XPath-ul specificat
+    2. Playwright deschide browser-ul în mod headless (fără interfață vizibilă)
+    3. Dă click pe tab-ul Over/Under
     4. Așteaptă 5 secunde pentru încărcare
     5. Capturează noul URL cu `#over-under`
     6. Afișează rezultatul
     """)
 
 st.write("---")
-st.write("**Debug:** Verifică dacă XPath-ul este corect în consolă")
+st.write("**Mod headless activat** - Browser-ul rulează în fundal fără interfață vizuală")
