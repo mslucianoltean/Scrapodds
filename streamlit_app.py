@@ -8,13 +8,13 @@ from scraper_logic import extract_all_over_under_lines, install_playwright
 
 # Configurare pagină Streamlit
 st.set_page_config(
-    page_title="DEBUG - Extractor Linii Over/Under",
+    page_title="DEBUG - Toate Liniile Over/Under",
     page_icon="🔍",
     layout="wide"
 )
 
-st.title("🔍 DEBUG - Verificare Linii Over/Under")
-st.write("Testează dacă se încarcă corect liniile după click pe Over/Under")
+st.title("🔍 DEBUG - Toate Liniile Over/Under")
+st.write("Testează derularea pentru a încărca TOATE liniile")
 
 # Forțează headless
 HEADLESS = True
@@ -26,39 +26,43 @@ match_url = st.text_input(
 )
 
 # Buton de test
-if st.button("🚀 Testează Încărcarea Liniilor"):
+if st.button("🚀 Extrage TOATE Liniile (cu derulare)"):
     if match_url:
         # Instalează Playwright
         with st.spinner("Se instalează Playwright..."):
             install_playwright()
         
         # Rulează testul
-        with st.spinner("Se testează încărcarea liniilor..."):
+        with st.spinner("Se derulează și se extrag toate liniile... (poate dura 30 de secunde)"):
             results = extract_all_over_under_lines(match_url, headless=HEADLESS)
         
         if results:
-            st.success(f"✅ TEST REUȘIT! {len(results)} linii găsite")
+            st.success(f"✅ SUCCES! {len(results)} linii găsite")
             
-            # Afișează liniile găsite
-            st.subheader("📋 Liniile găsite:")
-            for i, line in enumerate(results):
-                st.write(f"{i+1}. {line['line']}")
+            # Afișează toate liniile
+            st.subheader(f"📋 Toate cele {len(results)} linii găsite:")
             
-            st.info("""
-            **Următorul pas:** 
-            Dacă liniile sunt găsite, putem continua cu click pe săgeți și căutarea Betano.
-            """)
+            # Creează DataFrame pentru afișare mai ordonată
+            df = pd.DataFrame(results)
+            st.dataframe(df, use_container_width=True, hide_index=True)
+            
+            # Afișează și primele/ultimele linii pentru verificare
+            col1, col2 = st.columns(2)
+            with col1:
+                st.write("**Primele 5 linii:**")
+                for i in range(min(5, len(results))):
+                    st.write(f"{i+1}. {results[i]['line']}")
+            
+            with col2:
+                st.write("**Ultimele 5 linii:**")
+                for i in range(max(0, len(results)-5), len(results)):
+                    st.write(f"{i+1}. {results[i]['line']}")
             
         else:
-            st.error("❌ TEST EȘUAT - Nu s-au găsit linii")
-            st.info("""
-            **Debug necesar:**
-            - Verifică dacă se dă click corect pe Over/Under
-            - Verifică dacă liniile se încarcă în browser
-            - Verifică consola pentru mesaje de eroare
-            """)
+            st.error("❌ EȘEC - Nu s-au găsit linii")
+            
     else:
         st.warning("⚠️ Introdu un URL")
 
 st.write("---")
-st.write("**Scop:** Verifică dacă după click pe Over/Under se încarcă liniile cu săgeți")
+st.write("**Îmbunătățire:** Acum codul derulează pentru a încărca toate liniile (lazy loading)")
