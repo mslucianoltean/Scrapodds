@@ -58,48 +58,73 @@ def click_over_under_and_get_url(match_url: str, headless: bool = True):
             # Afiseaza URL-ul initial
             initial_url = page.url
             print(f"📄 URL initial: {initial_url}")
+            print(f"📄 Titlul paginii: {page.title()}")
             
-            # Încearcă să dea click pe Over/Under folosind XPath-ul tău
+            # VERIFICĂ dacă suntem deja pe Over/Under
+            if "#over-under" in initial_url.lower():
+                print("✅ DEJA suntem pe pagina Over/Under!")
+                browser.close()
+                return initial_url
+            
             print("🖱️ Se încearcă click pe tab-ul Over/Under...")
             
-            over_under_xpath = "/html/body/div[1]/div[1]/div[1]/div/main/div[4]/div[2]/div[2]/div[1]/div[1]/ul/li[3]/a"
+            # Încearcă mai mulți selectori pentru Over/Under
+            selectors = [
+                "//div[text()='Over/Under']",  # XPath simplu
+                "div:has-text('Over/Under')",  # CSS Selector
+                "text=Over/Under",             # Text selector
+                '[data-testid="navigation-inactive-tab"]:has-text("Over/Under")'  # TestID + text
+            ]
             
-            try:
-                # Așteaptă elementul să fie disponibil
-                page.wait_for_selector(f"xpath={over_under_xpath}", timeout=10000)
-                
-                # Dă click pe element
-                page.click(f"xpath={over_under_xpath}")
-                print("✅ Click realizat pe Over/Under!")
-                
-                # Așteaptă 5 secunde exact cum ai cerut
-                print("⏳ Aștept 5 secunde...")
-                time.sleep(5)
-                
-                # Capturează noul URL
-                new_url = page.url
-                print(f"🔄 URL nou după click: {new_url}")
-                
-                # Verifică dacă URL-ul s-a schimbat
-                if new_url != initial_url:
-                    print("✅ SUCCES: URL-ul s-a schimbat - Over/Under a funcționat!")
-                else:
-                    print("⚠️ ATENȚIE: URL-ul nu s-a schimbat - posibilă problemă")
-                
-                browser.close()
-                return new_url
-                
-            except Exception as e:
-                print(f"❌ Eroare la click: {e}")
-                print("🔍 Se verifică HTML-ul paginii...")
-                
-                # Afisează HTML-ul pentru debugging
-                html_content = page.content()
-                print(f"📄 Primele 2000 de caractere din HTML:")
+            for selector in selectors:
+                try:
+                    print(f"🔍 Încerc selector: {selector}")
+                    
+                    if selector.startswith("//"):
+                        # XPath
+                        element = page.locator(f"xpath={selector}")
+                    else:
+                        # CSS/Text selector
+                        element = page.locator(selector)
+                    
+                    if element.is_visible():
+                        print(f"✅ Element găsit cu selector: {selector}")
+                        
+                        # Dă click pe element
+                        element.click()
+                        print("✅ Click realizat pe Over/Under!")
+                        
+                        # Așteaptă 5 secunde
+                        print("⏳ Aștept 5 secunde...")
+                        time.sleep(5)
+                        
+                        # Capturează noul URL
+                        new_url = page.url
+                        print(f"🔄 URL nou după click: {new_url}")
+                        
+                        browser.close()
+                        return new_url
+                        
+                except Exception as e:
+                    print(f"❌ Eroare cu selector {selector}: {e}")
+                    continue
+            
+            # Dacă niciun selector nu a funcționat, afișează HTML pentru debugging
+            print("❌ Niciun selector nu a funcționat. Se verifică HTML-ul...")
+            html_content = page.content()
+            print("📄 Fragment HTML cu tab-uri:")
+            
+            # Găsește și afișează doar partea cu tab-urile
+            if '<ul class="visible-links odds-tabs' in html_content:
+                start = html_content.find('<ul class="visible-links odds-tabs')
+                end = html_content.find('</ul>', start) + 5
+                tabs_html = html_content[start:end]
+                print(tabs_html)
+            else:
                 print(html_content[:2000])
-                
-                browser.close()
-                return None
+            
+            browser.close()
+            return None
                 
     except Exception as e:
         print(f"❌ Eroare critică: {str(e)}")
