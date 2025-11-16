@@ -1,29 +1,23 @@
 import streamlit as st
-import pandas as pd
-from scraper_logic import extract_betano_with_link, install_playwright
+from scraper_logic import debug_container_content
 
-st.set_page_config(page_title="Betano - Cu Link", page_icon="🏀")
-st.title("🏀 Betano - Căutare după LINK")
-st.write("**Home/Away → Over/Under → Săgeată → Betano (după LINK) → Cote**")
-
-HEADLESS = True
+st.set_page_config(page_title="DEBUG Container", page_icon="🐛")
+st.title("🐛 DEBUG - Conținut Container Expand")
+st.write("Afișează EXACT ce este în containerul expandat")
 
 match_url = st.text_input(
     "🔗 URL cu Home/Away", 
     value="https://www.oddsportal.com/basketball/usa/nba/boston-celtics-los-angeles-clippers-OYHzgRy3/#home-away;1"
 )
 
-if st.button("🚀 Rulează cu Link Betano"):
+if st.button("🐛 Rulează DEBUG"):
     if match_url:
-        with st.spinner("Se execută cu căutare după LINK..."):
-            install_playwright()
-            results = extract_betano_with_link(match_url, headless=HEADLESS)
+        with st.spinner("Se rulează DEBUG..."):
+            result = debug_container_content(match_url)
         
-        if results:
-            st.success("✅ BETANO GĂSIT după LINK!")
-            df = pd.DataFrame(results)
-            st.dataframe(df, use_container_width=True)
+        if "status" in result:
+            st.success("✅ DEBUG complet! Verifică CONSOLA pentru output")
         else:
-            st.error("❌ Betano negăsit după LINK")
+            st.error(f"❌ Eroare: {result['error']}")
     else:
-        st.warning("⚠️ Introdu URL cu Home/Away")
+        st.warning("⚠️ Introdu URL")
