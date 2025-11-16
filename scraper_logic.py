@@ -29,8 +29,6 @@ def scrape_over_under_data(match_url: str, headless: bool = True):
         page.goto(match_url, wait_until='domcontentloaded', timeout=60000)
         time.sleep(5)
         
-        print(f"🔗 URL curent: {page.url}")
-        
         # CLICK PE OVER/UNDER
         if "#over-under" not in page.url:
             print("🖱️ Caut tab-ul Over/Under...")
@@ -42,7 +40,6 @@ def scrape_over_under_data(match_url: str, headless: bool = True):
                     print("✅ Găsit Over/Under - dau click...")
                     over_under_tab.first.click()
                     time.sleep(5)
-                    print(f"🔗 URL după click: {page.url}")
                 else:
                     print("❌ Nu am găsit tab-ul Over/Under")
                     return None
@@ -55,8 +52,8 @@ def scrape_over_under_data(match_url: str, headless: bool = True):
         page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
         time.sleep(3)
         
-        # EXTRAGERE DATE
-        print("🔍 Extrag liniile...")
+        # EXPAND TOATE LINIILE
+        print("🔓 Expand toate liniile...")
         scraped_data = []
         
         try:
@@ -77,17 +74,38 @@ def scrape_over_under_data(match_url: str, headless: bool = True):
                     else:
                         total = total_text
                     
-                    # COTE
-                    over_odds = row.locator('[data-testid="odd-container-default"]:nth-child(1) p').inner_text()
-                    under_odds = row.locator('[data-testid="odd-container-default"]:nth-child(2) p').inner_text()
-                    
-                    scraped_data.append({
-                        'total': total,
-                        'over': over_odds,
-                        'under': under_odds
-                    })
-                    
-                    print(f"✅ Linia {i+1}: {total} | Over: {over_odds} | Under: {under_odds}")
+                    # CLICK PE SĂGEATA DE EXPAND
+                    expand_arrow = row.locator('.bg-provider-arrow')
+                    if expand_arrow.count() > 0:
+                        expand_arrow.click()
+                        time.sleep(1)
+                        
+                        # EXTRAGE BOOKMAKERII EXPANDAȚI
+                        expanded_rows = page.locator(f'[data-testid="over-under-expanded-row"]:nth-of-type({i+1})')
+                        
+                        for j in range(expanded_rows.count()):
+                            try:
+                                expanded_row = expanded_rows.nth(j)
+                                
+                                # BOOKMAKER
+                                bookmaker_name = expanded_row.locator('[data-testid="outrights-expanded-bookmaker-name"]').inner_text()
+                                
+                                # COTE
+                                over_odds = expanded_row.locator('[data-testid="odd-container"]:nth-child(3) .odds-text').inner_text()
+                                under_odds = expanded_row.locator('[data-testid="odd-container"]:nth-child(4) .odds-text').inner_text()
+                                
+                                scraped_data.append({
+                                    'bookmaker': bookmaker_name,
+                                    'total': total,
+                                    'over': over_odds,
+                                    'under': under_odds
+                                })
+                                
+                                print(f"✅ {bookmaker_name}: {total} | Over: {over_odds} | Under: {under_odds}")
+                                
+                            except Exception as e:
+                                print(f"⚠️ Eroare la bookmaker {j+1}: {e}")
+                                continue
                     
                 except Exception as e:
                     print(f"⚠️ Eroare la linia {i+1}: {e}")
@@ -100,12 +118,12 @@ def scrape_over_under_data(match_url: str, headless: bool = True):
         browser.close()
         
         if scraped_data:
-            print(f"🎉 EXTRAS {len(scraped_data)} LINII!")
+            print(f"🎉 EXTRAS {len(scraped_data)} BOOKMAKERI!")
             return {
                 'url_final': page.url,
-                'numar_linii': len(scraped_data),
+                'numar_bookmakeri': len(scraped_data),
                 'date': scraped_data
             }
         else:
-            print("❌ NU AM EXTRAS NICI O LINIE")
+            print("❌ NU AM EXTRAS NICI UN BOOKMAKER")
             return None
