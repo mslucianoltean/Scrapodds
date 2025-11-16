@@ -47,24 +47,33 @@ def scrape_betano_odds(match_url: str, headless: bool = True, progress_callback=
         with sync_playwright() as p:
             log("🌐 Se lansează browser-ul...")
             
+            # FORȚEZ headless=True pe servere (Streamlit Cloud nu suportă headless=false)
+            if os.environ.get('STREAMLIT_SHARED_MODE'):
+                headless = True
+                log("🔧 Mod headless forțat pentru mediu server")
+            
             # Opțiuni de launch optimizate pentru server
             launch_options = {
                 'headless': headless,
                 'timeout': 30000
             }
             
-            # Argumente pentru medii server
-            if os.environ.get('STREAMLIT_SHARED_MODE') or not headless:
-                launch_options['args'] = [
-                    '--no-sandbox',
-                    '--disable-dev-shm-usage',
-                    '--disable-gpu',
-                    '--single-process',
-                    '--disable-web-security',
-                    '--disable-features=VizDisplayCompositor'
-                ]
+            # Argumente pentru medii server - CRITIC pentru Streamlit Cloud
+            launch_options['args'] = [
+                '--no-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-gpu',
+                '--single-process',
+                '--disable-web-security',
+                '--disable-features=VizDisplayCompositor',
+                '--disable-background-timer-throttling',
+                '--disable-backgrounding-occluded-windows',
+                '--disable-renderer-backgrounding'
+            ]
             
+            log(f"🔧 Launch options: headless={headless}")
             browser = p.chromium.launch(**launch_options)
+            log("✅ Browser lansat cu succes!")
             
             # Context cu setări realiste
             context = browser.new_context(
@@ -88,13 +97,6 @@ def scrape_betano_odds(match_url: str, headless: bool = True, progress_callback=
             page_title = page.title()
             log(f"📄 Pagina încărcată: {page_title}")
             
-            # DEBUG: Salvează screenshot pentru analiză
-            try:
-                page.screenshot(path="/tmp/debug_initial.png", full_page=True)
-                log("📸 Screenshot salvat: /tmp/debug_initial.png")
-            except Exception as e:
-                log(f"⚠️ Nu s-a putut salva screenshot: {e}")
-            
             # Verifică dacă URL-ul conține deja over-under
             if '#over-under' not in page.url:
                 log("🔄 Se navighează la tab-ul Over/Under...")
@@ -105,13 +107,6 @@ def scrape_betano_odds(match_url: str, headless: bool = True, progress_callback=
             # Așteaptă încărcarea tabelelor de cote
             log("⏳ Se așteaptă încărcarea tabelelor...")
             time.sleep(5)
-            
-            # DEBUG: Screenshot după navigare
-            try:
-                page.screenshot(path="/tmp/debug_after_nav.png", full_page=True)
-                log("📸 Screenshot după navigare salvat")
-            except:
-                pass
             
             # Găsește rândul Betano folosind metode multiple
             log("🔍 Se caută bookmaker-ul Betano...")
@@ -147,14 +142,6 @@ def scrape_betano_odds(match_url: str, headless: bool = True, progress_callback=
                     return None
             
             log("✅ Betano găsit! Se extrag cotele...")
-            
-            # DEBUG: Screenshot cu Betano evidențiat
-            try:
-                betano_row.highlight()
-                page.screenshot(path="/tmp/debug_betano.png", full_page=True)
-                log("📸 Screenshot cu Betano salvat")
-            except:
-                pass
             
             # Extrage cotele closing
             log("📊 Se extrag cotele closing...")
@@ -471,25 +458,6 @@ def find_popup_advanced(page):
                 return popup
         except:
             continue
-    
-    # Verifică și elemente cu position fixed/absolute
-    try:
-        positioned_elements = page.locator('*').filter(has=page.locator('[style*="fixed"], [style*="absolute"]'))
-        count = positioned_elements.count()
-        
-        for i in range(count):
-            try:
-                elem = positioned_elements.nth(i)
-                if elem.is_visible():
-                    # Verifică dacă elementul este destul de mare pentru a fi popup
-                    bbox = elem.bounding_box()
-                    if bbox and bbox['width'] > 100 and bbox['height'] > 50:
-                        log("✅ Popup găsit prin verificare poziție")
-                        return elem
-            except:
-                continue
-    except:
-        pass
     
     return None
 
