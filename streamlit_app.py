@@ -4,17 +4,17 @@ import time
 import sys
 import subprocess
 import os
-from scraper_logic import extract_betano_closing_odds, install_playwright
+from scraper_logic import debug_complete_extraction, install_playwright
 
 # Configurare pagină Streamlit
 st.set_page_config(
-    page_title="Extractor Cote Closing Betano", 
-    page_icon="🏀",
+    page_title="DEBUG COMPLET - Betano", 
+    page_icon="🐛",
     layout="wide"
 )
 
-st.title("🏀 Extractor Cote CLOSING Betano")
-st.write("Extrage toate cotele de CLOSING de la Betano pentru toate liniile Over/Under")
+st.title("🐛 DEBUG COMPLET - De ce nu găsește Betano?")
+st.write("Verifică totul pas cu pas pentru a identifica problema")
 
 # Forțează headless
 HEADLESS = True
@@ -25,72 +25,50 @@ match_url = st.text_input(
     value="https://www.oddsportal.com/basketball/usa/nba/boston-celtics-los-angeles-clippers-OYHzgRy3/#home-away;1"
 )
 
-# Buton de extracție
-if st.button("🚀 Extrage Cote Closing Betano"):
+# Buton de debug
+if st.button("🐛 Rulează Debug Complet"):
     if match_url:
         with st.spinner("Se instalează Playwright..."):
             install_playwright()
         
-        with st.spinner("Se extrag toate cotele de closing... (poate dura 1-2 minute)"):
-            results = extract_betano_closing_odds(match_url, headless=HEADLESS)
+        with st.spinner("Se rulează debug complet... (verifică consola)"):
+            result = debug_complete_extraction(match_url, headless=HEADLESS)
         
-        if results:
-            st.success(f"✅ EXTRACȚIE REUȘITĂ! {len(results)} linii cu cote Betano")
-            
-            # Afișează rezultatele
-            st.subheader("📊 Cote CLOSING Betano")
-            
-            df = pd.DataFrame(results)
-            st.dataframe(
-                df.style.format({
-                    'over_closing': '{:.2f}',
-                    'under_closing': '{:.2f}'
-                }),
-                use_container_width=True,
-                hide_index=True
-            )
-            
-            # Statistici
-            st.subheader("📈 Statistici Cote Closing")
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                st.metric("Total Linii cu Cote", len(results))
-            
-            with col2:
-                avg_over = df['over_closing'].mean()
-                st.metric("Over Mediu", f"{avg_over:.2f}")
-            
-            with col3:
-                avg_under = df['under_closing'].mean()
-                st.metric("Under Mediu", f"{avg_under:.2f}")
-            
-            # Export
-            csv = df.to_csv(index=False)
-            st.download_button(
-                "📥 Descarcă CSV",
-                csv,
-                "betano_closing_odds.csv",
-                "text/csv",
-                use_container_width=True
-            )
-            
+        # Afișează rezumat
+        st.subheader("📊 Rezumat Debug")
+        
+        if "error" in result:
+            st.error(f"❌ EROARE: {result['error']}")
         else:
-            st.error("❌ Nu s-au găsit cote Betano pentru nicio linie")
-            st.info("""
-            **Posibile cauze:**
-            - Betano nu oferă cote pentru acest meci
-            - Structura paginii s-a schimbat
-            - Probleme de încărcare
-            """)
+            st.success("✅ Debug completat!")
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Linii găsite", result['linii_gasite'])
+            with col2:
+                st.metric("Rânduri expandate", result['randuri_expandate'])
+            with col3:
+                st.metric("Bookmakeri găsiți", result['bookmakeri_gasiti'])
+        
+        st.info("""
+        **Verifică consola pentru detalii complete despre:**
+        - Câți bookmakeri sunt în listă
+        - Dacă Betano apare în listă
+        - Ce cote au primii bookmakeri
+        - Dacă rândurile se expandează corect
+        """)
             
     else:
         st.warning("⚠️ Introdu un URL")
 
 st.write("---")
 st.write("""
-**Acum extragem corect:**
-- ✅ Rândurile expandate cu `data-testid="over-under-expanded-row"`
-- ✅ Betano prin `data-testid="outrights-expanded-bookmaker-name"`
-- ✅ Cotele de closing cu `.odds-text` (1.14, 5.10 etc.)
+**Acest debug va arăta:**
+1. ✅ Dacă se navighează corect
+2. ✅ Dacă se dă click pe Over/Under  
+3. ✅ Câte linii se găsesc
+4. ✅ Dacă săgețile funcționează
+5. ✅ Câți bookmakeri sunt în listă
+6. ✅ Dacă Betano este în listă
+7. ✅ Ce cote au primii bookmakeri
 """)
