@@ -4,17 +4,17 @@ import time
 import sys
 import subprocess
 import os
-from scraper_logic import test_sageti_si_betano, install_playwright
+from scraper_logic import extract_betano_closing_odds, install_playwright
 
 # Configurare pagină Streamlit
 st.set_page_config(
-    page_title="TEST - Săgeți și Betano",
-    page_icon="🔍", 
+    page_title="Extractor Cote Closing Betano", 
+    page_icon="🏀",
     layout="wide"
 )
 
-st.title("🔍 TEST - Săgeți și Căutare Betano")
-st.write("Verifică dacă săgețile funcționează și dacă găsește Betano în liniile deschise")
+st.title("🏀 Extractor Cote CLOSING Betano")
+st.write("Extrage toate cotele de CLOSING de la Betano pentru toate liniile Over/Under")
 
 # Forțează headless
 HEADLESS = True
@@ -25,44 +25,72 @@ match_url = st.text_input(
     value="https://www.oddsportal.com/basketball/usa/nba/boston-celtics-los-angeles-clippers-OYHzgRy3/#home-away;1"
 )
 
-# Buton de test
-if st.button("🚀 Testează Săgeți și Betano"):
+# Buton de extracție
+if st.button("🚀 Extrage Cote Closing Betano"):
     if match_url:
         with st.spinner("Se instalează Playwright..."):
             install_playwright()
         
-        with st.spinner("Se testează săgețile și căutarea Betano... (poate dura 30 de secunde)"):
-            results = test_sageti_si_betano(match_url, headless=HEADLESS)
+        with st.spinner("Se extrag toate cotele de closing... (poate dura 1-2 minute)"):
+            results = extract_betano_closing_odds(match_url, headless=HEADLESS)
         
         if results:
-            st.success(f"✅ TEST COMPLET! {len(results)} linii testate")
+            # Filtrează doar liniile cu cote valide
+            valid_results = [r for r in results if r['over_closing'] != 'N/A']
+            
+            st.success(f"✅ EXTRACȚIE REUȘITĂ! {len(valid_results)} linii cu cote Betano")
             
             # Afișează rezultatele
-            st.subheader("📊 Rezultate Test:")
+            st.subheader("📊 Cote CLOSING Betano")
             
-            df = pd.DataFrame(results)
-            st.dataframe(df, use_container_width=True, hide_index=True)
+            df = pd.DataFrame(valid_results)
+            st.dataframe(
+                df.style.format({
+                    'over_closing': '{:.2f}',
+                    'under_closing': '{:.2f}'
+                }),
+                use_container_width=True,
+                hide_index=True
+            )
             
             # Statistici
-            betano_gasit = sum(1 for r in results if 'DA' in str(r['betano']))
-            st.info(f"**Betano găsit în:** {betano_gasit} din {len(results)} linii testate")
+            st.subheader("📈 Statistici Cote Closing")
+            col1, col2, col3 = st.columns(3)
             
-            if betano_gasit > 0:
-                st.success("🎉 Betano a fost găsit! Putem continua cu extracția completă.")
-            else:
-                st.error("❌ Betano nu a fost găsit. Trebuie să ajustăm selectori.")
-                
+            with col1:
+                st.metric("Total Linii cu Cote", len(valid_results))
+            
+            with col2:
+                avg_over = df['over_closing'].mean()
+                st.metric("Over Mediu", f"{avg_over:.2f}")
+            
+            with col3:
+                avg_under = df['under_closing'].mean()
+                st.metric("Under Mediu", f"{avg_under:.2f}")
+            
+            # Export
+            csv = df.to_csv(index=False)
+            st.download_button(
+                "📥 Descarcă CSV",
+                csv,
+                "betano_closing_odds.csv",
+                "text/csv",
+                use_container_width=True
+            )
+            
         else:
-            st.error("❌ TEST EȘUAT")
+            st.error("❌ Nu s-au putut extrage datele")
             
     else:
         st.warning("⚠️ Introdu un URL")
 
 st.write("---")
 st.write("""
-**Ce testează acest cod:**
-1. Dă click pe săgețile primelor 3 linii
-2. Caută Betano în liniile deschise  
-3. Încearcă să extragă cotele de la Betano
-4. Afișează rezultatele pentru fiecare linie
+**Acum extragem:**
+- ✅ Cotele de **CLOSING** de la Betano
+- ✅ Pentru **toate liniile** Over/Under
+- ✅ Cotele corecte (1.14, 5.10 etc.)
+
+**Următorul pas:** 
+După ce avem closing odds, putem să adăugăm și opening odds din popup.
 """)
