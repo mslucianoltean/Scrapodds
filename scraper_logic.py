@@ -5,7 +5,6 @@ import re
 import sys
 import subprocess
 import os
-import base64
 from typing import Optional, List, Dict
 
 def install_playwright():
@@ -35,7 +34,7 @@ install_playwright()
 
 def scrape_betano_odds(match_url: str, headless: bool = True, progress_callback=None) -> Optional[List[Dict]]:
     """
-    Scrape-ează cotele Betano Over/Under de pe OddsPortal - Versiune optimizată
+    Scrape-ează cotele Betano Over/Under de pe OddsPortal - Versiune corectă
     """
     results = []
     
@@ -87,27 +86,31 @@ def scrape_betano_odds(match_url: str, headless: bool = True, progress_callback=
             log("⏳ Se așteaptă încărcarea datelor...")
             time.sleep(5)
             
-            # Încearcă să găsească Betano folosind metode multiple
-            betano_data = find_betano_data(page)
+            # Găsește Betano folosind selectori exacte bazate pe structura HTML
+            betano_row = find_betano_row_exact(page)
             
-            if not betano_data:
-                log("❌ Betano nu a fost găsit sau nu are cote pentru acest meci")
+            if not betano_row:
+                log("❌ Betano nu a fost găsit")
                 browser.close()
                 return None
             
-            log("✅ Date Betano găsite!")
+            log("✅ Betano găsit! Se extrag cotele...")
             
-            # Extrage cotele
-            closing_odds = extract_closing_odds_from_data(betano_data)
+            # Extrage cotele closing
+            closing_odds = extract_closing_odds_exact(betano_row)
             if closing_odds:
                 results.append(closing_odds)
                 log(f"✅ Closing: Over {closing_odds['over']} | Under {closing_odds['under']}")
+            else:
+                log("❌ Nu s-au putut extrage cotele closing")
             
             # Încearcă să găsească opening odds
-            opening_odds = extract_opening_odds_from_data(betano_data, page)
+            opening_odds = extract_opening_odds_exact(page, betano_row)
             if opening_odds:
                 results.append(opening_odds)
                 log(f"✅ Opening: Over {opening_odds['over']} | Under {opening_odds['under']}")
+            else:
+                log("ℹ️ Opening odds nu sunt disponibile")
             
             browser.close()
             
@@ -120,155 +123,145 @@ def scrape_betano_odds(match_url: str, headless: bool = True, progress_callback=
             
     except Exception as e:
         log(f"❌ Eroare critică: {str(e)}")
+        import traceback
+        log(f"🔍 Detalii eroare: {traceback.format_exc()}")
         return None
 
-def find_betano_data(page):
-    """Găsește datele Betano folosind metode multiple"""
+def find_betano_row_exact(page):
+    """Găsește rândul Betano folosind selectori exacte bazate pe structura HTML"""
     
-    # Metoda 1: Caută în structura de date a paginii
+    # Metoda 1: Caută după logo-ul Betano
     try:
-        # Încearcă să găsească script-uri care conțin date
-        scripts = page.locator('script').all()
-        for script in scripts:
-            try:
-                content = script.inner_text()
-                if 'Betano' in content and ('over' in content.lower() or 'under' in content.lower()):
-                    log("✅ Betano găsit în script-uri")
-                    return {'type': 'script', 'content': content}
-            except:
-                continue
+        betano_logo = page.locator('img[alt="Betano.ro"]').first
+        if betano_logo.is_visible():
+            log("✅ Betano găsit prin logo")
+            # Navighează la containerul părinte care conține toate datele
+            betano_container = betano_logo.locator('xpath=./ancestor::div[@data-testid="over-under-expanded-row"]').first
+            if betano_container.is_visible():
+                return betano_container
     except Exception as e:
-        log(f"⚠️ Eroare la scanarea script-urilor: {e}")
+        log(f"⚠️ Eroare la găsirea logo-ului: {e}")
     
-    # Metoda 2: Caută în elementele vizuale
+    # Metoda 2: Caută după textul "Betano.ro"
     try:
-        # Selectori pentru OddsPortal modern
-        selectors = [
-            'div[data-bookmaker*="betano"]',
-            '[class*="betano"]',
-            'tr:has-text("Betano")',
-            'div:has-text("Betano")',
-            '//*[contains(text(), "Betano")]'
-        ]
+        betano_text = page.locator('text=Betano.ro').first
+        if betano_text.is_visible():
+            log("✅ Betano găsit prin text")
+            betano_container = betano_text.locator('xpath=./ancestor::div[@data-testid="over-under-expanded-row"]').first
+            if betano_container.is_visible():
+                return betano_container
+    except Exception as e:
+        log(f"⚠️ Eroare la găsirea textului: {e}")
+    
+    # Metoda 3: Caută în toate rândurile de date
+    try:
+        all_rows = page.locator('[data-testid="over-under-expanded-row"]')
+        row_count = all_rows.count()
+        log(f"🔍 Total rânduri găsite: {row_count}")
         
-        for selector in selectors:
+        for i in range(row_count):
             try:
-                if selector.startswith('//'):
-                    element = page.locator(f"xpath={selector}").first
-                else:
-                    element = page.locator(selector).first
-                
-                if element.is_visible():
-                    log(f"✅ Betano găsit cu selector: {selector}")
-                    return {'type': 'element', 'element': element}
+                row = all_rows.nth(i)
+                if row.is_visible():
+                    row_text = row.inner_text()
+                    if 'Betano' in row_text:
+                        log(f"✅ Betano găsit în rândul {i+1}")
+                        return row
             except:
                 continue
     except Exception as e:
-        log(f"⚠️ Eroare la scanarea elementelor: {e}")
-    
-    # Metoda 3: Caută în tot textul paginii
-    try:
-        page_text = page.inner_text('body')
-        if 'Betano' in page_text:
-            log("✅ Betano găsit în textul paginii")
-            return {'type': 'page_text', 'content': page_text}
-    except Exception as e:
-        log(f"⚠️ Eroare la scanarea textului paginii: {e}")
+        log(f"⚠️ Eroare la scanarea rândurilor: {e}")
     
     return None
 
-def extract_closing_odds_from_data(betano_data):
-    """Extrage cotele closing din datele găsite"""
+def extract_closing_odds_exact(betano_row):
+    """Extrage cotele closing din rândul Betano"""
     
     try:
-        if betano_data['type'] == 'element':
-            element = betano_data['element']
-            text = element.inner_text()
+        # Găsește containerele de cote folosind data-testid exact
+        odds_containers = betano_row.locator('[data-testid="odd-container"]')
+        odds_count = odds_containers.count()
+        log(f"🔍 Containere de cote găsite: {odds_count}")
+        
+        if odds_count >= 2:
+            # Primul container este pentru Over
+            over_container = odds_containers.nth(0)
+            over_text = over_container.locator('.odds-text').first.inner_text().strip()
             
-            # Extrage toate numerele care arată a cote
-            odds = re.findall(r'\d+\.\d{2}', text)
-            valid_odds = []
+            # Al doilea container este pentru Under
+            under_container = odds_containers.nth(1)
+            under_text = under_container.locator('.odds-text').first.inner_text().strip()
             
-            for odd in odds:
-                odd_float = float(odd)
-                if 1.0 < odd_float < 50.0:  # Cote normale pentru sport
-                    valid_odds.append(odd_float)
-            
-            if len(valid_odds) >= 2:
+            try:
+                over_odds = float(over_text)
+                under_odds = float(under_text)
+                
+                log(f"📊 Cote brute: Over={over_text}, Under={under_text}")
+                
                 return {
                     'type': 'Closing',
-                    'over': valid_odds[0],
-                    'under': valid_odds[1]
+                    'over': over_odds,
+                    'under': under_odds
                 }
+            except ValueError as e:
+                log(f"❌ Eroare la conversia coteLOR: {e}")
+                return None
         
-        elif betano_data['type'] in ['script', 'page_text']:
-            text = betano_data['content']
-            
-            # Caută pattern-uri specifice pentru cote
-            patterns = [
-                r'(\d+\.\d{2}).*?(\d+\.\d{2})',  # Două cote consecutive
-                r'over.*?(\d+\.\d{2}).*?under.*?(\d+\.\d{2})',
-                r'(\d+\.\d{2}).*?over.*?(\d+\.\d{2}).*?under'
-            ]
-            
-            for pattern in patterns:
-                matches = re.findall(pattern, text, re.IGNORECASE)
-                for match in matches:
-                    if len(match) == 2:
-                        try:
-                            over = float(match[0])
-                            under = float(match[1])
-                            if 1.0 < over < 50.0 and 1.0 < under < 50.0:
-                                return {
-                                    'type': 'Closing',
-                                    'over': over,
-                                    'under': under
-                                }
-                        except:
-                            continue
-            
-            # Fallback: primele 2 cote valide găsite
-            odds = re.findall(r'\d+\.\d{2}', text)
-            valid_odds = []
-            
-            for odd in odds:
+        # Fallback: caută cote în textul rândului
+        row_text = betano_row.inner_text()
+        log(f"📝 Text rând: {row_text[:200]}...")
+        
+        # Caută pattern-uri de cote în text
+        odds_pattern = r'(\d+\.\d{2})'
+        all_odds = re.findall(odds_pattern, row_text)
+        log(f"🔢 Toate cotele găsite în text: {all_odds}")
+        
+        # Filtrează cote valide (între 1.0 și 50.0)
+        valid_odds = []
+        for odd in all_odds:
+            try:
                 odd_float = float(odd)
                 if 1.0 < odd_float < 50.0:
                     valid_odds.append(odd_float)
+            except:
+                continue
+        
+        if len(valid_odds) >= 2:
+            return {
+                'type': 'Closing',
+                'over': valid_odds[0],
+                'under': valid_odds[1]
+            }
             
-            if len(valid_odds) >= 2:
-                return {
-                    'type': 'Closing',
-                    'over': valid_odds[0],
-                    'under': valid_odds[1]
-                }
-                
     except Exception as e:
-        log(f"❌ Eroare la extragerea closing odds: {e}")
+        log(f"❌ Eroare la extragerea coteLOR: {e}")
     
     return None
 
-def extract_opening_odds_from_data(betano_data, page):
-    """Extrage opening odds"""
+def extract_opening_odds_exact(page, betano_row):
+    """Extrage opening odds făcând click pe cote"""
     
     try:
-        # Pentru opening odds, trebuie să facem click pe element
-        if betano_data['type'] == 'element':
-            element = betano_data['element']
+        # Găsește primele containere de cote clickable
+        odds_containers = betano_row.locator('[data-testid="odd-container"]')
+        
+        if odds_containers.count() >= 1:
+            # Încearcă să faci click pe prima cotă
+            first_odds = odds_containers.nth(0)
             
-            # Găsește elemente clickable în apropiere
-            clickable = element.locator('a, button, [onclick]').first
-            if clickable.is_visible():
-                clickable.click()
+            if first_odds.is_visible():
+                log("🖱️ Se încearcă click pe cotă pentru opening odds...")
+                first_odds.click()
                 time.sleep(2)
                 
-                # Caută popup-ul sau tooltip-ul
+                # Caută popup-ul sau tooltip-ul care apare
                 popup_selectors = [
                     '[class*="tooltip"]',
                     '[class*="popup"]',
                     '[class*="modal"]',
                     '[style*="absolute"]',
-                    '[style*="fixed"]'
+                    '[style*="fixed"]',
+                    '[role="tooltip"]'
                 ]
                 
                 for selector in popup_selectors:
@@ -276,20 +269,29 @@ def extract_opening_odds_from_data(betano_data, page):
                         popup = page.locator(selector).first
                         if popup.is_visible():
                             popup_text = popup.inner_text()
+                            log(f"📋 Text popup: {popup_text[:100]}...")
                             
-                            # Caută "opening" în text
+                            # Caută "opening" în textul popup-ului
                             if 'opening' in popup_text.lower():
-                                odds = re.findall(r'\d+\.\d{2}', popup_text)
+                                log("✅ Opening odds găsite în popup!")
+                                
+                                # Extrage cotele din popup
+                                odds_pattern = r'(\d+\.\d{2})'
+                                popup_odds = re.findall(odds_pattern, popup_text)
                                 valid_odds = []
                                 
-                                for odd in odds:
-                                    odd_float = float(odd)
-                                    if 1.0 < odd_float < 50.0:
-                                        valid_odds.append(odd_float)
+                                for odd in popup_odds:
+                                    try:
+                                        odd_float = float(odd)
+                                        if 1.0 < odd_float < 50.0:
+                                            valid_odds.append(odd_float)
+                                    except:
+                                        continue
                                 
                                 if len(valid_odds) >= 2:
                                     # Închide popup-ul
                                     page.keyboard.press('Escape')
+                                    time.sleep(1)
                                     return {
                                         'type': 'Opening',
                                         'over': valid_odds[0],
@@ -300,9 +302,15 @@ def extract_opening_odds_from_data(betano_data, page):
                 
                 # Închide orice popup deschis
                 page.keyboard.press('Escape')
+                time.sleep(1)
                 
     except Exception as e:
         log(f"⚠️ Eroare la extragerea opening odds: {e}")
+        # Închide orice popup deschis în caz de eroare
+        try:
+            page.keyboard.press('Escape')
+        except:
+            pass
     
     return None
 
